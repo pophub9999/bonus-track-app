@@ -163,7 +163,7 @@ function AddSong({ onClose, onAdd }) {
 
     try {
       const response = await fetch(
-        `${SPOTIFY_SEARCH_URL}?q=${encodeURIComponent(q)}&limit=20&market=PT`,
+        `${SPOTIFY_SEARCH_URL}?q=${encodeURIComponent(q)}&limit=10&market=PT`,
         {
           method: 'GET',
           headers: {
