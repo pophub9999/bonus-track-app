@@ -32,13 +32,7 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
-
-      - name: Align Expo SDK 54 dependencies
-        run: |
-          npm install expo@~54.0.0 react@19.1.0 react-dom@19.1.0 react-native@0.81.5 react-native-web@0.21.0 --save --legacy-peer-deps
-          npx expo install expo-updates
-          npx expo install --fix
+        run: npm install
 
       - name: Validate Expo project
         run: npx expo-doctor
@@ -49,16 +43,7 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Expo identity
-        run: eas whoami
-
-      - name: Create or link EAS project
-        run: eas init --account nextits-team --non-interactive
-
-      - name: Configure EAS Update
-        run: eas update:configure --non-interactive
-
       - name: Publish Expo Go preview
         env:
           CI: '1'
-        run: eas update --branch expo-go-preview --message "Bonus Track Expo Go preview" --environment preview --non-interactive
+        run: eas update --branch expo-go-preview --message "Bonus Track Expo Go SDK57 preview" --environment preview --non-interactive
