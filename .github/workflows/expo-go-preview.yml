@@ -1,0 +1,64 @@
+name: Bonus Track Expo Go Preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['main']
+    paths:
+      - 'App.js'
+      - 'index.js'
+      - 'app.json'
+      - 'package.json'
+      - '.github/workflows/expo-go-preview.yml'
+
+jobs:
+  publish:
+    name: Publish Expo Go preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check Expo token
+        run: |
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "Missing EXPO_TOKEN repository secret."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Align Expo SDK 54 dependencies
+        run: |
+          npm install expo@~54.0.0 react@19.1.0 react-dom@19.1.0 react-native@0.81.5 react-native-web@0.21.0 --save --legacy-peer-deps
+          npx expo install expo-updates
+          npx expo install --fix
+
+      - name: Validate Expo project
+        run: npx expo-doctor
+
+      - name: Setup Expo / EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Expo identity
+        run: eas whoami
+
+      - name: Create or link EAS project
+        run: eas init --account nextits-team --non-interactive
+
+      - name: Configure EAS Update
+        run: eas update:configure --non-interactive
+
+      - name: Publish Expo Go preview
+        env:
+          CI: '1'
+        run: eas update --branch expo-go-preview --message "Bonus Track Expo Go preview" --environment preview --non-interactive
