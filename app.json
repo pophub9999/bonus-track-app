@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Bonus Track",
+    "slug": "bonus-track-app",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.pop.bonustrack"
+    },
+    "android": {
+      "package": "com.pop.bonustrack"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    }
+  }
+}
