@@ -14,12 +14,13 @@
     "doctor": "expo-doctor"
   },
   "dependencies": {
-    "expo": "~54.0.0",
-    "expo-updates": "~29.0.0",
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
-    "react-native": "0.81.5",
-    "react-native-web": "0.21.0"
+    "expo": "~57.0.9",
+    "expo-updates": "~57.0.23",
+    "@expo/metro-runtime": "~57.0.16",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-web": "^0.21.2"
   },
   "devDependencies": {}
 }
