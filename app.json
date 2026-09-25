@@ -2,9 +2,15 @@
   "expo": {
     "name": "Bonus Track",
     "slug": "bonus-track-app",
+    "owner": "nextits-team",
     "version": "0.1.0",
     "orientation": "default",
     "userInterfaceStyle": "dark",
+    "scheme": "bonustrack",
+    "description": "Gestão de músicas, letras, cifras, tabs e pautas",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.pop.bonustrack"
