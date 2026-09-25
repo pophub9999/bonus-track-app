@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   SafeAreaView,
   View,
@@ -10,6 +10,8 @@ import {
   useWindowDimensions,
   StatusBar,
   ScrollView,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 
 const COLORS = {
@@ -23,6 +25,10 @@ const COLORS = {
   purple2: '#6d3bd1',
 };
 
+const SUPABASE_URL = 'https://zndlradxdcpfrrxirswy.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable__RU-9-tCv4jTLaovhNg25A_1WqQsiFy';
+const SPOTIFY_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spotify-search`;
+
 const MOCK_SONGS = [
   { id: '1', title: 'Make It Wit Chu', artist: 'Queens of the Stone Age', album: 'Era Vulgaris', year: '2007', cover: '💗', tags: ['Baixo', 'Bateria'] },
   { id: '2', title: 'Come Together', artist: 'The Beatles', album: 'Abbey Road', year: '1969', cover: '🛣️', tags: ['Guitarra', 'Baixo'] },
@@ -32,11 +38,24 @@ const MOCK_SONGS = [
   { id: '6', title: 'Smoke on the Water', artist: 'Deep Purple', album: 'Machine Head', year: '1972', cover: '🌫️', tags: ['Guitarra', 'Baixo'] },
 ];
 
-const SEARCH_RESULTS = [
-  { id: 's1', title: 'Make It Wit Chu', artist: 'Queens of the Stone Age', album: 'Era Vulgaris', year: '2007', cover: '💗' },
-  { id: 's2', title: 'Make It Wit Chu (Live)', artist: 'Queens of the Stone Age', album: 'Over the Years and Through the Woods', year: '2005', cover: '🎸' },
-  { id: 's3', title: 'Make It Wit Chu', artist: 'Desert Sessions', album: 'Vol. 9 & 10', year: '2003', cover: '🏜️' },
-];
+function SongCover({ song, large = false }) {
+  const imageUrl = song.image || song.thumbnail;
+  if (imageUrl) {
+    return (
+      <Image
+        source={{ uri: imageUrl }}
+        style={large ? styles.coverImageLarge : styles.coverImageSmall}
+        resizeMode="cover"
+      />
+    );
+  }
+
+  return (
+    <View style={large ? styles.coverLargeFallback : styles.coverSmallFallback}>
+      <Text style={large ? styles.coverEmoji : styles.coverSmallEmoji}>{song.cover || '♫'}</Text>
+    </View>
+  );
+}
 
 function TabButton({ label, active, onPress }) {
   return (
@@ -61,12 +80,15 @@ function SongDetail({ song, onBack }) {
 
         <View style={[styles.hero, tablet && styles.heroTablet]}>
           <View style={[styles.coverLarge, tablet && styles.coverLargeTablet]}>
-            <Text style={styles.coverEmoji}>{song.cover}</Text>
+            <SongCover song={song} large />
           </View>
           <View style={styles.heroInfo}>
             <Text style={styles.detailTitle}>{song.title}</Text>
             <Text style={styles.detailArtist}>{song.artist}</Text>
-            <Text style={styles.meta}>{song.album} · {song.year}</Text>
+            <Text style={styles.meta}>
+              {song.album || 'Álbum desconhecido'}{song.year ? ` · ${song.year}` : ''}
+            </Text>
+            {song.spotifyUrl ? <Text style={styles.sourceText}>Fonte: Spotify</Text> : null}
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>♡ Favoritar</Text></TouchableOpacity>
               <TouchableOpacity style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>✎ Editar</Text></TouchableOpacity>
@@ -121,7 +143,69 @@ function SongDetail({ song, onBack }) {
 }
 
 function AddSong({ onClose, onAdd }) {
-  const [query, setQuery] = useState('Make It Wit Chu');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [error, setError] = useState('');
+
+  async function searchSpotify(searchText = query) {
+    const q = searchText.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setSearched(false);
+      setError('');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(
+        `${SPOTIFY_SEARCH_URL}?q=${encodeURIComponent(q)}&limit=20&market=PT`,
+        {
+          method: 'GET',
+          headers: {
+            apikey: SUPABASE_PUBLISHABLE_KEY,
+            Accept: 'application/json',
+          },
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Não foi possível pesquisar no Spotify.');
+      }
+
+      setResults(data.tracks || []);
+      setSearched(true);
+    } catch (err) {
+      setResults([]);
+      setSearched(true);
+      setError(err?.message || 'Erro na pesquisa. Tenta novamente.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const q = query.trim();
+
+    if (q.length < 2) {
+      setResults([]);
+      setSearched(false);
+      setError('');
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      searchSpotify(q);
+    }, 550);
+
+    return () => clearTimeout(timer);
+  }, [query]);
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.screen}>
@@ -131,29 +215,79 @@ function AddSong({ onClose, onAdd }) {
           <View style={{ width: 55 }} />
         </View>
 
-        <Text style={styles.sectionLead}>Pesquisa no catálogo</Text>
-        <Text style={styles.sectionDescription}>Procura por título ou artista. A integração Spotify será ligada nesta pesquisa.</Text>
+        <Text style={styles.sectionLead}>Pesquisa no Spotify</Text>
+        <Text style={styles.sectionDescription}>Pesquisa por título, artista ou ambos. Os resultados vêm do catálogo oficial do Spotify.</Text>
 
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Pesquisar música ou artista..."
-          placeholderTextColor={COLORS.muted}
-          style={styles.searchInput}
-        />
+        <View style={styles.searchRow}>
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={() => searchSpotify()}
+            returnKeyType="search"
+            autoCorrect={false}
+            placeholder="Ex.: Make It Wit Chu, QOTSA..."
+            placeholderTextColor={COLORS.muted}
+            style={[styles.searchInput, styles.searchInputGrow]}
+          />
+          <TouchableOpacity style={styles.searchButton} onPress={() => searchSpotify()}>
+            <Text style={styles.primaryText}>Pesquisar</Text>
+          </TouchableOpacity>
+        </View>
 
-        <Text style={styles.resultLabel}>Resultados</Text>
-        {SEARCH_RESULTS.filter(x => (x.title + x.artist).toLowerCase().includes(query.toLowerCase().trim()) || !query.trim()).map(item => (
-          <View key={item.id} style={styles.resultCard}>
-            <View style={styles.coverSmall}><Text style={styles.coverSmallEmoji}>{item.cover}</Text></View>
-            <View style={styles.resultInfo}>
-              <Text style={styles.songTitle}>{item.title}</Text>
-              <Text style={styles.songArtist}>{item.artist}</Text>
-              <Text style={styles.songMeta}>{item.album} · {item.year}</Text>
-            </View>
-            <TouchableOpacity style={styles.addCircle} onPress={() => onAdd(item)}><Text style={styles.addCircleText}>+</Text></TouchableOpacity>
+        <View style={styles.searchStatusRow}>
+          <Text style={styles.resultLabel}>Resultados</Text>
+          <Text style={styles.spotifyLabel}>Spotify</Text>
+        </View>
+
+        {loading ? (
+          <View style={styles.feedbackBox}>
+            <ActivityIndicator />
+            <Text style={styles.feedbackText}>A pesquisar no catálogo Spotify…</Text>
           </View>
-        ))}
+        ) : error ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorTitle}>Não foi possível pesquisar</Text>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={() => searchSpotify()}>
+              <Text style={styles.secondaryButtonText}>Tentar novamente</Text>
+            </TouchableOpacity>
+          </View>
+        ) : searched && results.length === 0 ? (
+          <View style={styles.feedbackBox}>
+            <Text style={styles.feedbackText}>Não foram encontrados resultados. Experimenta título + artista.</Text>
+          </View>
+        ) : !searched ? (
+          <View style={styles.feedbackBox}>
+            <Text style={styles.feedbackText}>Escreve pelo menos 2 caracteres para começar a pesquisa.</Text>
+          </View>
+        ) : null}
+
+        <FlatList
+          data={results}
+          keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.searchResultsList}
+          renderItem={({ item }) => (
+            <View style={styles.resultCard}>
+              <View style={styles.coverSmall}>
+                <SongCover song={item} />
+              </View>
+              <View style={styles.resultInfo}>
+                <Text style={styles.songTitle} numberOfLines={1}>{item.title}</Text>
+                <Text style={styles.songArtist} numberOfLines={1}>{item.artist}</Text>
+                <Text style={styles.songMeta} numberOfLines={1}>
+                  {item.album || 'Álbum desconhecido'}{item.year ? ` · ${item.year}` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.addCircle}
+                onPress={() => onAdd({ ...item, cover: '♫', tags: [] })}
+              >
+                <Text style={styles.addCircleText}>+</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        />
 
         <TouchableOpacity style={styles.manualButton}>
           <Text style={styles.secondaryButtonText}>✎ Criar música manualmente</Text>
@@ -171,14 +305,32 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState('');
 
-  const filtered = useMemo(() => songs.filter(s => (s.title + ' ' + s.artist).toLowerCase().includes(query.toLowerCase())), [songs, query]);
+  const filtered = useMemo(
+    () => songs.filter((s) => (s.title + ' ' + s.artist).toLowerCase().includes(query.toLowerCase())),
+    [songs, query]
+  );
 
   if (screen === 'add') {
-    return <AddSong onClose={() => setScreen('songs')} onAdd={(song) => {
-      setSongs(prev => prev.some(x => x.title === song.title && x.artist === song.artist) ? prev : [{ ...song, id: String(Date.now()), tags: [] }, ...prev]);
-      setSelected(song);
-      setScreen('detail');
-    }} />;
+    return (
+      <AddSong
+        onClose={() => setScreen('songs')}
+        onAdd={(song) => {
+          const normalized = {
+            ...song,
+            id: song.id || String(Date.now()),
+            tags: song.tags || [],
+          };
+
+          setSongs((prev) =>
+            prev.some((x) => x.id === normalized.id || (x.title === normalized.title && x.artist === normalized.artist))
+              ? prev
+              : [normalized, ...prev]
+          );
+          setSelected(normalized);
+          setScreen('detail');
+        }}
+      />
+    );
   }
 
   if (screen === 'detail' && selected) {
@@ -226,7 +378,9 @@ export default function App() {
             contentContainerStyle={styles.list}
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.songRow} onPress={() => { setSelected(item); setScreen('detail'); }}>
-                <View style={styles.coverSmall}><Text style={styles.coverSmallEmoji}>{item.cover}</Text></View>
+                <View style={styles.coverSmall}>
+                  <SongCover song={item} />
+                </View>
                 <View style={styles.songInfo}>
                   <Text style={styles.songTitle}>{item.title}</Text>
                   <Text style={styles.songArtist}>{item.artist}</Text>
@@ -270,9 +424,17 @@ const styles = StyleSheet.create({
   primarySmall: { backgroundColor: COLORS.purple, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 13 },
   primaryText: { color: 'white', fontWeight: '800' },
   searchInput: { backgroundColor: COLORS.panel2, color: COLORS.text, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 15, paddingVertical: 13, fontSize: 15, marginBottom: 12 },
+  searchInputGrow: { flex: 1, marginBottom: 0 },
+  searchRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch', marginBottom: 10 },
+  searchButton: { backgroundColor: COLORS.purple, borderRadius: 12, paddingHorizontal: 15, justifyContent: 'center' },
+  searchStatusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  spotifyLabel: { color: '#1ed760', fontWeight: '800', fontSize: 12 },
   list: { paddingBottom: 100 },
+  searchResultsList: { paddingBottom: 12 },
   songRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#121a28' },
-  coverSmall: { width: 50, height: 50, borderRadius: 10, backgroundColor: COLORS.panel2, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  coverSmall: { width: 50, height: 50, borderRadius: 10, backgroundColor: COLORS.panel2, alignItems: 'center', justifyContent: 'center', marginRight: 12, overflow: 'hidden' },
+  coverImageSmall: { width: 50, height: 50 },
+  coverSmallFallback: { width: 50, height: 50, alignItems: 'center', justifyContent: 'center' },
   coverSmallEmoji: { fontSize: 24 },
   songInfo: { flex: 1 },
   songTitle: { color: COLORS.text, fontWeight: '750', fontSize: 15 },
@@ -296,19 +458,28 @@ const styles = StyleSheet.create({
   resultInfo: { flex: 1 },
   addCircle: { width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.purple, alignItems: 'center', justifyContent: 'center' },
   addCircleText: { color: 'white', fontSize: 24, lineHeight: 26 },
-  manualButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, marginTop: 14, alignItems: 'center' },
+  manualButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, marginTop: 6, alignItems: 'center' },
   secondaryButtonText: { color: COLORS.text, fontWeight: '700', fontSize: 13 },
+  feedbackBox: { minHeight: 82, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.panel, borderRadius: 14, alignItems: 'center', justifyContent: 'center', padding: 18, gap: 10, marginBottom: 10 },
+  feedbackText: { color: COLORS.muted, textAlign: 'center' },
+  errorBox: { borderWidth: 1, borderColor: '#713b50', backgroundColor: '#24141b', borderRadius: 14, padding: 15, marginBottom: 10 },
+  errorTitle: { color: '#ffd5df', fontWeight: '800', marginBottom: 5 },
+  errorText: { color: '#d9a8b5', lineHeight: 19 },
+  retryButton: { marginTop: 12, alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12 },
 
   detailWrap: { padding: 20, paddingBottom: 50, maxWidth: 1050, width: '100%', alignSelf: 'center' },
   hero: { gap: 16, marginBottom: 20 },
   heroTablet: { flexDirection: 'row', alignItems: 'center' },
-  coverLarge: { width: 160, height: 160, borderRadius: 18, backgroundColor: '#2a1a43', alignItems: 'center', justifyContent: 'center' },
+  coverLarge: { width: 160, height: 160, borderRadius: 18, backgroundColor: '#2a1a43', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   coverLargeTablet: { width: 190, height: 190 },
+  coverImageLarge: { width: '100%', height: '100%' },
+  coverLargeFallback: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
   coverEmoji: { fontSize: 76 },
   heroInfo: { flex: 1 },
   detailTitle: { color: COLORS.text, fontSize: 30, fontWeight: '900' },
   detailArtist: { color: '#a2b3ce', fontSize: 17, marginTop: 5 },
   meta: { color: COLORS.muted, marginTop: 6 },
+  sourceText: { color: '#1ed760', marginTop: 7, fontSize: 12, fontWeight: '700' },
   actionRow: { flexDirection: 'row', gap: 8, marginTop: 18, flexWrap: 'wrap' },
   secondaryButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 13 },
   stageBar: { backgroundColor: COLORS.panel2, borderRadius: 13, padding: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 22, marginBottom: 16 },
