@@ -239,14 +239,10 @@ export default function App() {
 
           {!tablet && (
             <View style={styles.bottomNav}>
-              <Text style={styles.bottomItem}>⌂{'
-'}Início</Text>
-              <Text style={[styles.bottomItem, styles.bottomActive]}>♫{'
-'}Músicas</Text>
-              <Text style={styles.bottomItem}>☷{'
-'}Setlists</Text>
-              <Text style={styles.bottomItem}>♡{'
-'}Favoritos</Text>
+              <Text style={styles.bottomItem}>⌂{'\\n'}Início</Text>
+              <Text style={[styles.bottomItem, styles.bottomActive]}>♫{'\\n'}Músicas</Text>
+              <Text style={styles.bottomItem}>☷{'\\n'}Setlists</Text>
+              <Text style={styles.bottomItem}>♡{'\\n'}Favoritos</Text>
             </View>
           )}
         </View>
