@@ -21,6 +21,14 @@
     "web": {
       "bundler": "metro",
       "output": "static"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4a832539-563c-4fce-85e1-28412d21000a"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/4a832539-563c-4fce-85e1-28412d21000a"
     }
   }
 }
