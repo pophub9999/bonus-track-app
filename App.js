@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Linking,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 
 const COLORS = {
   bg: '#090d16',
@@ -105,14 +106,431 @@ function TabButton({ label, active, onPress }) {
   );
 }
 
+
+function BassTabPanel({ song }) {
+  const DEFAULT_SECTIONS = ['Intro', 'Verso', 'Pré-Refrão', 'Refrão', 'Bridge', 'Solo', 'Outro'];
+  const [savedTabs, setSavedTabs] = useState([]);
+  const [activeTab, setActiveTab] = useState(null);
+  const [savedLoading, setSavedLoading] = useState(true);
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [error, setError] = useState('');
+  const [savingKey, setSavingKey] = useState('');
+  const [showSource, setShowSource] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [sections, setSections] = useState(DEFAULT_SECTIONS.map((name) => ({ name, content: '' })));
+  const [customTab, setCustomTab] = useState('');
+  const [savingContent, setSavingContent] = useState(false);
+  const [savedMessage, setSavedMessage] = useState('');
+
+  function hydrateEditor(tab) {
+    const incoming = Array.isArray(tab?.sections) ? tab.sections : [];
+    const merged = DEFAULT_SECTIONS.map((name) => {
+      const found = incoming.find((section) => section?.name === name);
+      return { name, content: found?.content || '' };
+    });
+    for (const section of incoming) {
+      if (section?.name && !merged.some((item) => item.name === section.name)) {
+        merged.push({ name: section.name, content: section.content || '' });
+      }
+    }
+    setSections(merged);
+    setCustomTab(tab?.custom_tab || '');
+  }
+
+  async function loadSavedTabs(preferredId = null) {
+    setSavedLoading(true);
+    setError('');
+    try {
+      const data = await libraryGet('tabs', { songId: song.id, instrument: 'bass' });
+      const tabs = data.tabs || [];
+      setSavedTabs(tabs);
+      const chosen = tabs.find((item) => item.id === preferredId)
+        || tabs.find((item) => item.is_primary)
+        || tabs[0]
+        || null;
+      setActiveTab(chosen);
+      hydrateEditor(chosen);
+      if (!chosen) setShowSource(false);
+    } catch (err) {
+      setError(err?.message || 'Não foi possível carregar as tabs guardadas.');
+    } finally {
+      setSavedLoading(false);
+    }
+  }
+
+  async function searchBassTabs() {
+    setSearching(true);
+    setError('');
+    setSavedMessage('');
+    try {
+      const q = song.artist + ' ' + song.title;
+      const response = await fetch(TAB_SEARCH_URL + '?q=' + encodeURIComponent(q), {
+        headers: {
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+          Accept: 'application/json',
+        },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'Não foi possível procurar tablaturas.');
+      setResults(data.results || []);
+      setSearched(true);
+    } catch (err) {
+      setResults([]);
+      setSearched(true);
+      setError(err?.message || 'Erro ao procurar tablaturas de baixo.');
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function chooseVersion(result, track) {
+    const key = String(result.songId) + '-' + String(track.index);
+    setSavingKey(key);
+    setError('');
+    setSavedMessage('');
+    try {
+      const data = await libraryPost('save_tab_reference', {
+        songId: song.id,
+        instrument: 'bass',
+        result,
+        track,
+      });
+      await loadSavedTabs(data.tab?.id || null);
+      setShowSource(true);
+      setEditing(false);
+      setSavedMessage('Versão guardada como principal.');
+    } catch (err) {
+      setError(err?.message || 'Não foi possível guardar esta versão.');
+    } finally {
+      setSavingKey('');
+    }
+  }
+
+  async function makePrimary(tab) {
+    if (!tab) return;
+    if (tab.is_primary) {
+      setActiveTab(tab);
+      hydrateEditor(tab);
+      return;
+    }
+    setSavingKey(tab.id);
+    setError('');
+    try {
+      const data = await libraryPost('set_primary_tab', { tabId: tab.id });
+      await loadSavedTabs(data.tab?.id || tab.id);
+      setSavedMessage('Versão definida como principal.');
+    } catch (err) {
+      setError(err?.message || 'Não foi possível definir a versão principal.');
+    } finally {
+      setSavingKey('');
+    }
+  }
+
+  async function saveOwnTab() {
+    if (!activeTab) return;
+    setSavingContent(true);
+    setError('');
+    setSavedMessage('');
+    try {
+      const data = await libraryPost('save_tab_content', {
+        tabId: activeTab.id,
+        sections,
+        customTab,
+      });
+      setActiveTab(data.tab);
+      setSavedTabs((prev) => prev.map((item) => item.id === data.tab.id ? data.tab : item));
+      setEditing(false);
+      setShowSource(false);
+      setSavedMessage('A tua tab ficou guardada.');
+    } catch (err) {
+      setError(err?.message || 'Não foi possível guardar a tua tab.');
+    } finally {
+      setSavingContent(false);
+    }
+  }
+
+  function updateSection(index, content) {
+    setSections((prev) => prev.map((section, i) => i === index ? { ...section, content } : section));
+  }
+
+  function sourceUri(tab) {
+    if (!tab?.source_url) return null;
+    const joiner = tab.source_url.includes('?') ? '&' : '?';
+    return tab.source_url + joiner + 'inst=bass';
+  }
+
+  useEffect(() => {
+    loadSavedTabs();
+  }, [song.id]);
+
+  useEffect(() => {
+    if (!savedLoading && savedTabs.length === 0 && !searched && !searching) {
+      searchBassTabs();
+    }
+  }, [savedLoading, savedTabs.length, searched, searching]);
+
+  if (savedLoading) {
+    return (
+      <View style={styles.feedbackBox}>
+        <ActivityIndicator />
+        <Text style={styles.feedbackText}>A carregar tabs guardadas…</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      <View style={styles.bassToolbar}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.emptyTitle}>Tab de baixo</Text>
+          <Text style={styles.emptyText}>
+            Guarda uma versão de referência e cria a tua própria versão por secções para ensaio e palco.
+          </Text>
+        </View>
+        <TouchableOpacity style={styles.primarySmall} onPress={searchBassTabs} disabled={searching}>
+          <Text style={styles.primaryText}>{searching ? 'A procurar…' : '↻ Procurar versões'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {error ? <Text style={styles.errorInline}>{error}</Text> : null}
+      {savedMessage ? <Text style={styles.successInline}>{savedMessage}</Text> : null}
+
+      {savedTabs.length > 0 ? (
+        <View style={styles.savedTabsBlock}>
+          <Text style={styles.resultLabel}>VERSÕES GUARDADAS</Text>
+          {savedTabs.map((tab) => (
+            <TouchableOpacity
+              key={tab.id}
+              style={[styles.savedTabRow, activeTab?.id === tab.id && styles.savedTabRowActive]}
+              onPress={() => makePrimary(tab)}
+              disabled={savingKey === tab.id}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.songTitle}>
+                  {(tab.source_track_name || 'Baixo') + (tab.is_primary ? ' · Principal' : '')}
+                </Text>
+                <Text style={styles.songArtist}>
+                  {(tab.source_artist || song.artist) + ' · ' + (tab.source_title || song.title)}
+                </Text>
+                <Text style={styles.songMeta}>
+                  {tab.tuning_label ? 'Afinação: ' + tab.tuning_label : 'Afinação não indicada'}
+                </Text>
+              </View>
+              {savingKey === tab.id ? <ActivityIndicator /> : <Text style={styles.chevron}>›</Text>}
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
+
+      {activeTab ? (
+        <View style={styles.primaryTabCard}>
+          <View style={styles.bassResultHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.songTitle}>{activeTab.source_title || song.title}</Text>
+              <Text style={styles.songArtist}>
+                {(activeTab.source_artist || song.artist) + (activeTab.source_track_name ? ' · ' + activeTab.source_track_name : '')}
+              </Text>
+              {activeTab.tuning_label ? <Text style={styles.songMeta}>{'Afinação: ' + activeTab.tuning_label}</Text> : null}
+            </View>
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => activeTab.source_url && Linking.openURL(activeTab.source_url)}
+            >
+              <Text style={styles.secondaryButtonText}>Abrir fonte ↗</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modeSwitch}>
+            <TouchableOpacity
+              style={[styles.modeButton, showSource && !editing && styles.modeButtonActive]}
+              onPress={() => { setShowSource(true); setEditing(false); }}
+            >
+              <Text style={[styles.modeButtonText, showSource && !editing && styles.modeButtonTextActive]}>Fonte</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeButton, !showSource && !editing && styles.modeButtonActive]}
+              onPress={() => { setShowSource(false); setEditing(false); }}
+            >
+              <Text style={[styles.modeButtonText, !showSource && !editing && styles.modeButtonTextActive]}>Minha tab</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeButton, editing && styles.modeButtonActive]}
+              onPress={() => { setShowSource(false); setEditing(true); hydrateEditor(activeTab); }}
+            >
+              <Text style={[styles.modeButtonText, editing && styles.modeButtonTextActive]}>Editar</Text>
+            </TouchableOpacity>
+          </View>
+
+          {showSource && !editing ? (
+            sourceUri(activeTab) ? (
+              <View style={styles.webViewFrame}>
+                <WebView
+                  source={{ uri: sourceUri(activeTab) }}
+                  style={styles.webView}
+                  startInLoadingState
+                  renderLoading={() => (
+                    <View style={styles.webViewLoading}>
+                      <ActivityIndicator />
+                      <Text style={styles.feedbackText}>A carregar a tab do Songsterr…</Text>
+                    </View>
+                  )}
+                  javaScriptEnabled
+                  domStorageEnabled
+                  sharedCookiesEnabled
+                  allowsInlineMediaPlayback
+                />
+              </View>
+            ) : (
+              <Text style={styles.emptyText}>Esta versão não tem um endereço de origem disponível.</Text>
+            )
+          ) : editing ? (
+            <View>
+              <Text style={styles.resultLabel}>SECÇÕES</Text>
+              {sections.map((section, index) => (
+                <View key={section.name + '-' + index} style={styles.sectionEditor}>
+                  <Text style={styles.formLabel}>{section.name}</Text>
+                  <TextInput
+                    value={section.content}
+                    onChangeText={(value) => updateSection(index, value)}
+                    multiline
+                    textAlignVertical="top"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholder={'Tab / notas para ' + section.name.toLowerCase() + '…'}
+                    placeholderTextColor={COLORS.muted}
+                    style={styles.tabEditorInput}
+                  />
+                </View>
+              ))}
+
+              <Text style={styles.formLabel}>Tab completa / notas adicionais</Text>
+              <TextInput
+                value={customTab}
+                onChangeText={setCustomTab}
+                multiline
+                textAlignVertical="top"
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="Cola ou escreve aqui uma versão completa, notas de execução, dedilhação, etc."
+                placeholderTextColor={COLORS.muted}
+                style={[styles.tabEditorInput, styles.tabEditorLarge]}
+              />
+
+              <View style={styles.editActions}>
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={() => { setEditing(false); hydrateEditor(activeTab); }}
+                  disabled={savingContent}
+                >
+                  <Text style={styles.secondaryButtonText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.primaryButton} onPress={saveOwnTab} disabled={savingContent}>
+                  {savingContent ? <ActivityIndicator /> : <Text style={styles.primaryText}>Guardar minha tab</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View>
+              {Array.isArray(activeTab.sections) && activeTab.sections.some((section) => section?.content?.trim()) ? (
+                activeTab.sections
+                  .filter((section) => section?.content?.trim())
+                  .map((section, index) => (
+                    <View key={section.name + '-' + index} style={styles.tabSectionCard}>
+                      <Text style={styles.tabSectionTitle}>{section.name}</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <Text style={styles.asciiTabText} selectable>{section.content}</Text>
+                      </ScrollView>
+                    </View>
+                  ))
+              ) : activeTab.custom_tab?.trim() ? null : (
+                <View style={styles.feedbackBox}>
+                  <Text style={styles.emptyTitle}>Ainda não criaste a tua versão.</Text>
+                  <Text style={styles.feedbackText}>
+                    Usa “Editar” para organizar a música por Intro, Verso, Refrão, Bridge, Solo e Outro.
+                  </Text>
+                </View>
+              )}
+
+              {activeTab.custom_tab?.trim() ? (
+                <View style={styles.tabSectionCard}>
+                  <Text style={styles.tabSectionTitle}>Tab completa / notas</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <Text style={styles.asciiTabText} selectable>{activeTab.custom_tab}</Text>
+                  </ScrollView>
+                </View>
+              ) : null}
+            </View>
+          )}
+        </View>
+      ) : null}
+
+      {searched ? (
+        <View style={styles.searchVersionsBlock}>
+          <Text style={styles.resultLabel}>RESULTADOS SONGSTERR</Text>
+          {searching ? (
+            <View style={styles.feedbackBox}>
+              <ActivityIndicator />
+              <Text style={styles.feedbackText}>A procurar versões com baixo…</Text>
+            </View>
+          ) : results.length === 0 ? (
+            <View style={styles.feedbackBox}>
+              <Text style={styles.feedbackText}>Não encontrei uma versão com baixo.</Text>
+            </View>
+          ) : (
+            results.map((result) => (
+              <View key={String(result.songId)} style={styles.bassResultCard}>
+                <View style={styles.bassResultHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.songTitle}>{result.title}</Text>
+                    <Text style={styles.songArtist}>{result.artist}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.secondaryButton}
+                    onPress={() => Linking.openURL(result.songsterrUrl || result.searchUrl)}
+                  >
+                    <Text style={styles.secondaryButtonText}>Pré-visualizar ↗</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {result.bassTracks.map((track) => {
+                  const key = String(result.songId) + '-' + String(track.index);
+                  return (
+                    <View key={key} style={styles.bassTrackRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.bassTrackName}>{track.name || track.instrument}</Text>
+                        <Text style={styles.bassTrackMeta}>
+                          {track.instrument}
+                          {track.tuningLabel ? ' · ' + track.tuningLabel : ''}
+                          {track.views ? ' · ' + track.views.toLocaleString() + ' visualizações' : ''}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.primarySmall}
+                        onPress={() => chooseVersion(result, track)}
+                        disabled={Boolean(savingKey)}
+                      >
+                        {savingKey === key
+                          ? <ActivityIndicator />
+                          : <Text style={styles.primaryText}>Usar esta versão</Text>}
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
+            ))
+          )}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate }) {
   const [tab, setTab] = useState('Letra');
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsError, setLyricsError] = useState('');
-  const [bassResults, setBassResults] = useState([]);
-  const [bassLoading, setBassLoading] = useState(false);
-  const [bassSearched, setBassSearched] = useState(false);
-  const [bassError, setBassError] = useState('');
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
 
@@ -129,36 +547,6 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate }) {
       setLyricsLoading(false);
     }
   }
-
-  async function searchBassTabs() {
-    setBassLoading(true);
-    setBassError('');
-    try {
-      const q = `${song.artist} ${song.title}`;
-      const response = await fetch(`${TAB_SEARCH_URL}?q=${encodeURIComponent(q)}`, {
-        headers: {
-          apikey: SUPABASE_PUBLISHABLE_KEY,
-          Accept: 'application/json',
-        },
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || 'Não foi possível procurar tablaturas.');
-      setBassResults(data.results || []);
-      setBassSearched(true);
-    } catch (error) {
-      setBassResults([]);
-      setBassSearched(true);
-      setBassError(error?.message || 'Erro ao procurar tablaturas de baixo.');
-    } finally {
-      setBassLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (tab === 'Baixo' && !bassSearched && !bassLoading) {
-      searchBassTabs();
-    }
-  }, [tab, bassSearched, bassLoading, song.id]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -219,11 +607,7 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate }) {
                     : 'Conteúdo da música'}
               </Text>
             </View>
-            {tab === 'Baixo' ? (
-              <TouchableOpacity style={styles.primarySmall} onPress={searchBassTabs} disabled={bassLoading}>
-                <Text style={styles.primaryText}>↻ Procurar</Text>
-              </TouchableOpacity>
-            ) : tab !== 'Letra' ? (
+            {tab !== 'Letra' && tab !== 'Baixo' ? (
               <TouchableOpacity style={styles.primarySmall}>
                 <Text style={styles.primaryText}>+ Adicionar</Text>
               </TouchableOpacity>
@@ -251,55 +635,7 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate }) {
               </View>
             )
           ) : tab === 'Baixo' ? (
-            <View>
-              {bassLoading ? (
-                <View style={styles.feedbackBox}>
-                  <ActivityIndicator />
-                  <Text style={styles.feedbackText}>A procurar versões com baixo…</Text>
-                </View>
-              ) : bassError ? (
-                <View>
-                  <Text style={styles.errorInline}>{bassError}</Text>
-                </View>
-              ) : bassSearched && bassResults.length === 0 ? (
-                <View>
-                  <Text style={styles.emptyTitle}>Não encontrei uma versão com baixo.</Text>
-                  <Text style={styles.emptyText}>Podes voltar a procurar ou adicionar uma tab manualmente.</Text>
-                </View>
-              ) : (
-                bassResults.map((result) => (
-                  <View key={String(result.songId)} style={styles.bassResultCard}>
-                    <View style={styles.bassResultHeader}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.songTitle}>{result.title}</Text>
-                        <Text style={styles.songArtist}>{result.artist}</Text>
-                      </View>
-                      <TouchableOpacity
-                        style={styles.secondaryButton}
-                        onPress={() => Linking.openURL(result.songsterrUrl || result.searchUrl)}
-                      >
-                        <Text style={styles.secondaryButtonText}>Abrir tab ↗</Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {result.bassTracks.map((track, index) => (
-                      <View key={`${result.songId}-${index}`} style={styles.bassTrackRow}>
-                        <Text style={styles.bassTrackName}>{track.name || track.instrument}</Text>
-                        <Text style={styles.bassTrackMeta}>
-                          {track.instrument}
-                          {track.tuningLabel ? ` · ${track.tuningLabel}` : ''}
-                          {track.views ? ` · ${track.views.toLocaleString()} visualizações` : ''}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ))
-              )}
-
-              <TouchableOpacity style={styles.manualButton}>
-                <Text style={styles.secondaryButtonText}>＋ Adicionar tab de baixo manualmente</Text>
-              </TouchableOpacity>
-            </View>
+            <BassTabPanel song={song} />
           ) : (
             <View>
               <Text style={styles.emptyTitle}>Ainda não existe conteúdo em {tab.toLowerCase()}.</Text>
@@ -1132,7 +1468,29 @@ const styles = StyleSheet.create({
   bassTrackName: { color: COLORS.text, fontWeight: '800', fontSize: 14 },
   bassTrackMeta: { color: COLORS.muted, marginTop: 4, fontSize: 12, lineHeight: 18 },
 
-  createPlaylistRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  bassToolbar: { flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' },
+  successInline: { color: COLORS.success, marginVertical: 10, fontWeight: '700' },
+  savedTabsBlock: { marginBottom: 16 },
+  savedTabRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, marginBottom: 8, backgroundColor: '#0d1320' },
+  savedTabRowActive: { borderColor: COLORS.purple, backgroundColor: '#1b1530' },
+  primaryTabCard: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 14, backgroundColor: '#0c121e', marginBottom: 18 },
+  modeSwitch: { flexDirection: 'row', gap: 6, marginBottom: 12, flexWrap: 'wrap' },
+  modeButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: COLORS.panel },
+  modeButtonActive: { backgroundColor: COLORS.purple2, borderColor: COLORS.purple },
+  modeButtonText: { color: COLORS.muted, fontWeight: '700', fontSize: 12 },
+  modeButtonTextActive: { color: COLORS.text },
+  webViewFrame: { height: 620, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff' },
+  webView: { flex: 1, backgroundColor: '#fff' },
+  webViewLoading: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.panel, gap: 10 },
+  sectionEditor: { marginBottom: 12 },
+  tabEditorInput: { minHeight: 110, backgroundColor: '#070b12', color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, padding: 12, fontFamily: 'monospace', fontSize: 14, lineHeight: 21 },
+  tabEditorLarge: { minHeight: 180 },
+  tabSectionCard: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, marginBottom: 12, backgroundColor: COLORS.panel2 },
+  tabSectionTitle: { color: '#c8b4ff', fontWeight: '900', marginBottom: 10, fontSize: 15 },
+  asciiTabText: { color: COLORS.text, fontFamily: 'monospace', fontSize: 14, lineHeight: 21 },
+  searchVersionsBlock: { marginTop: 12 },
+
+    createPlaylistRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   playlistRow: { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#121a28' },
   playlistIcon: { width: 46, height: 46, borderRadius: 12, marginRight: 12, backgroundColor: '#2b1d48', alignItems: 'center', justifyContent: 'center' },
   playlistIconText: { color: '#c6a7ff', fontSize: 22 },
