@@ -107,8 +107,12 @@ function TabButton({ label, active, onPress }) {
 }
 
 
+
 function BassTabPanel({ song }) {
-  const DEFAULT_SECTIONS = ['Intro', 'Verso', 'Pré-Refrão', 'Refrão', 'Bridge', 'Solo', 'Outro'];
+  const GRID_COLUMNS = 18;
+  const { width } = useWindowDimensions();
+  const tablet = width >= 760;
+
   const [savedTabs, setSavedTabs] = useState([]);
   const [activeTab, setActiveTab] = useState(null);
   const [savedLoading, setSavedLoading] = useState(true);
@@ -119,23 +123,73 @@ function BassTabPanel({ song }) {
   const [savingKey, setSavingKey] = useState('');
   const [showSource, setShowSource] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [sections, setSections] = useState(DEFAULT_SECTIONS.map((name) => ({ name, content: '' })));
-  const [customTab, setCustomTab] = useState('');
   const [savingContent, setSavingContent] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
 
-  function hydrateEditor(tab) {
-    const incoming = Array.isArray(tab?.sections) ? tab.sections : [];
-    const merged = DEFAULT_SECTIONS.map((name) => {
-      const found = incoming.find((section) => section?.name === name);
-      return { name, content: found?.content || '' };
-    });
-    for (const section of incoming) {
-      if (section?.name && !merged.some((item) => item.name === section.name)) {
-        merged.push({ name: section.name, content: section.content || '' });
-      }
+  const [tabTitle, setTabTitle] = useState('');
+  const [stringCount, setStringCount] = useState(4);
+  const [editorMode, setEditorMode] = useState('visual');
+  const [isPublic, setIsPublic] = useState(false);
+  const [blocks, setBlocks] = useState([]);
+  const [customTab, setCustomTab] = useState('');
+
+  function emptyRows(count) {
+    return Array.from({ length: count }, () => Array.from({ length: GRID_COLUMNS }, () => ''));
+  }
+
+  function newBlock(name, count) {
+    return {
+      id: String(Date.now()) + '-' + String(Math.floor(Math.random() * 100000)),
+      name: name || 'Bloco',
+      type: 'visual-block',
+      cells: emptyRows(count),
+    };
+  }
+
+  function stringLabels(count, tuningLabel) {
+    if (tuningLabel) {
+      const parsed = tuningLabel
+        .split('·')
+        .map((item) => item.trim().replace(/[0-9]/g, ''))
+        .filter(Boolean);
+      if (parsed.length === count) return parsed.reverse();
     }
-    setSections(merged);
+    if (count === 5) return ['G', 'D', 'A', 'E', 'B'];
+    if (count === 6) return ['C', 'G', 'D', 'A', 'E', 'B'];
+    return ['G', 'D', 'A', 'E'];
+  }
+
+  function normalizeBlocks(tab, count) {
+    const incoming = Array.isArray(tab?.sections) ? tab.sections : [];
+    const visual = incoming.filter((section) => section?.type === 'visual-block' || Array.isArray(section?.cells));
+
+    if (!visual.length) {
+      return [newBlock('Bloco 1', count)];
+    }
+
+    return visual.map((block, index) => {
+      const rows = Array.from({ length: count }, (_, rowIndex) => {
+        const sourceRow = Array.isArray(block?.cells?.[rowIndex]) ? block.cells[rowIndex] : [];
+        return Array.from({ length: GRID_COLUMNS }, (_, colIndex) => String(sourceRow[colIndex] ?? ''));
+      });
+
+      return {
+        id: block.id || ('block-' + index),
+        name: block.name || ('Bloco ' + (index + 1)),
+        type: 'visual-block',
+        cells: rows,
+      };
+    });
+  }
+
+  function hydrateEditor(tab) {
+    const count = Number(tab?.string_count || 4);
+    const safeCount = count >= 4 && count <= 6 ? count : 4;
+    setTabTitle(tab?.title || ((song.title || 'Tab') + ' - Baixo'));
+    setStringCount(safeCount);
+    setEditorMode(tab?.editor_mode === 'text' ? 'text' : 'visual');
+    setIsPublic(Boolean(tab?.is_public));
+    setBlocks(normalizeBlocks(tab, safeCount));
     setCustomTab(tab?.custom_tab || '');
   }
 
@@ -228,6 +282,47 @@ function BassTabPanel({ song }) {
     }
   }
 
+  function resizeStrings(nextCount) {
+    setStringCount(nextCount);
+    setBlocks((prev) => prev.map((block) => {
+      const nextCells = Array.from({ length: nextCount }, (_, rowIndex) => {
+        const existing = Array.isArray(block.cells?.[rowIndex]) ? block.cells[rowIndex] : [];
+        return Array.from({ length: GRID_COLUMNS }, (_, colIndex) => String(existing[colIndex] ?? ''));
+      });
+      return { ...block, cells: nextCells };
+    }));
+  }
+
+  function updateBlockName(blockIndex, name) {
+    setBlocks((prev) => prev.map((block, index) => index === blockIndex ? { ...block, name } : block));
+  }
+
+  function updateCell(blockIndex, rowIndex, colIndex, value) {
+    const clean = value.replace(/[^0-9]/g, '').slice(0, 2);
+    setBlocks((prev) => prev.map((block, index) => {
+      if (index !== blockIndex) return block;
+      const cells = block.cells.map((row, r) => {
+        if (r !== rowIndex) return row;
+        return row.map((cell, col) => col === colIndex ? clean : cell);
+      });
+      return { ...block, cells };
+    }));
+  }
+
+  function clearBlock(blockIndex) {
+    setBlocks((prev) => prev.map((block, index) =>
+      index === blockIndex ? { ...block, cells: emptyRows(stringCount) } : block
+    ));
+  }
+
+  function removeBlock(blockIndex) {
+    setBlocks((prev) => prev.filter((_, index) => index !== blockIndex));
+  }
+
+  function addBlock() {
+    setBlocks((prev) => [...prev, newBlock('Bloco ' + (prev.length + 1), stringCount)]);
+  }
+
   async function saveOwnTab() {
     if (!activeTab) return;
     setSavingContent(true);
@@ -236,11 +331,16 @@ function BassTabPanel({ song }) {
     try {
       const data = await libraryPost('save_tab_content', {
         tabId: activeTab.id,
-        sections,
+        title: tabTitle,
+        stringCount,
+        isPublic,
+        editorMode,
+        sections: blocks,
         customTab,
       });
       setActiveTab(data.tab);
       setSavedTabs((prev) => prev.map((item) => item.id === data.tab.id ? data.tab : item));
+      hydrateEditor(data.tab);
       setEditing(false);
       setShowSource(false);
       setSavedMessage('A tua tab ficou guardada.');
@@ -251,14 +351,46 @@ function BassTabPanel({ song }) {
     }
   }
 
-  function updateSection(index, content) {
-    setSections((prev) => prev.map((section, i) => i === index ? { ...section, content } : section));
-  }
-
   function sourceUri(tab) {
     if (!tab?.source_url) return null;
     const joiner = tab.source_url.includes('?') ? '&' : '?';
     return tab.source_url + joiner + 'inst=bass';
+  }
+
+  function renderGrid(block, blockIndex, editable) {
+    const labels = stringLabels(stringCount, activeTab?.tuning_label);
+    return (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.visualGridScroll}>
+        <View>
+          {Array.from({ length: stringCount }, (_, rowIndex) => (
+            <View key={'row-' + rowIndex} style={styles.visualGridRow}>
+              <Text style={styles.stringLabel}>{labels[rowIndex] || ''}</Text>
+              <Text style={styles.stringDivider}>|</Text>
+              {Array.from({ length: GRID_COLUMNS }, (_, colIndex) => {
+                const value = block.cells?.[rowIndex]?.[colIndex] || '';
+                return editable ? (
+                  <TextInput
+                    key={'cell-' + rowIndex + '-' + colIndex}
+                    value={value}
+                    onChangeText={(text) => updateCell(blockIndex, rowIndex, colIndex, text)}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    selectTextOnFocus
+                    style={[styles.fretCell, value ? styles.fretCellFilled : null]}
+                    placeholder="–"
+                    placeholderTextColor="#56627a"
+                  />
+                ) : (
+                  <View key={'cell-' + rowIndex + '-' + colIndex} style={[styles.fretCellView, value ? styles.fretCellFilled : null]}>
+                    <Text style={value ? styles.fretCellTextFilled : styles.fretCellTextEmpty}>{value || '–'}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    );
   }
 
   useEffect(() => {
@@ -286,7 +418,7 @@ function BassTabPanel({ song }) {
         <View style={{ flex: 1 }}>
           <Text style={styles.emptyTitle}>Tab de baixo</Text>
           <Text style={styles.emptyText}>
-            Guarda uma versão de referência e cria a tua própria versão por secções para ensaio e palco.
+            Guarda uma versão do Songsterr como referência e cria a tua versão visual dentro do Bonus Track.
           </Text>
         </View>
         <TouchableOpacity style={styles.primarySmall} onPress={searchBassTabs} disabled={searching}>
@@ -309,13 +441,13 @@ function BassTabPanel({ song }) {
             >
               <View style={{ flex: 1 }}>
                 <Text style={styles.songTitle}>
-                  {(tab.source_track_name || 'Baixo') + (tab.is_primary ? ' · Principal' : '')}
+                  {(tab.title || tab.source_track_name || 'Baixo') + (tab.is_primary ? ' · Principal' : '')}
                 </Text>
                 <Text style={styles.songArtist}>
                   {(tab.source_artist || song.artist) + ' · ' + (tab.source_title || song.title)}
                 </Text>
                 <Text style={styles.songMeta}>
-                  {tab.tuning_label ? 'Afinação: ' + tab.tuning_label : 'Afinação não indicada'}
+                  {(tab.string_count || 4) + ' cordas' + (tab.tuning_label ? ' · ' + tab.tuning_label : '')}
                 </Text>
               </View>
               {savingKey === tab.id ? <ActivityIndicator /> : <Text style={styles.chevron}>›</Text>}
@@ -328,7 +460,7 @@ function BassTabPanel({ song }) {
         <View style={styles.primaryTabCard}>
           <View style={styles.bassResultHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.songTitle}>{activeTab.source_title || song.title}</Text>
+              <Text style={styles.songTitle}>{activeTab.title || activeTab.source_title || song.title}</Text>
               <Text style={styles.songArtist}>
                 {(activeTab.source_artist || song.artist) + (activeTab.source_track_name ? ' · ' + activeTab.source_track_name : '')}
               </Text>
@@ -386,81 +518,159 @@ function BassTabPanel({ song }) {
               <Text style={styles.emptyText}>Esta versão não tem um endereço de origem disponível.</Text>
             )
           ) : editing ? (
-            <View>
-              <Text style={styles.resultLabel}>SECÇÕES</Text>
-              {sections.map((section, index) => (
-                <View key={section.name + '-' + index} style={styles.sectionEditor}>
-                  <Text style={styles.formLabel}>{section.name}</Text>
-                  <TextInput
-                    value={section.content}
-                    onChangeText={(value) => updateSection(index, value)}
-                    multiline
-                    textAlignVertical="top"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    placeholder={'Tab / notas para ' + section.name.toLowerCase() + '…'}
-                    placeholderTextColor={COLORS.muted}
-                    style={styles.tabEditorInput}
-                  />
+            <View style={[styles.visualEditorShell, tablet && styles.visualEditorShellTablet]}>
+              <View style={[styles.editorSettingsCard, tablet && styles.editorSettingsCardTablet]}>
+                <Text style={styles.editorPanelTitle}>Configurações</Text>
+
+                <Text style={styles.formLabel}>Título</Text>
+                <TextInput
+                  value={tabTitle}
+                  onChangeText={setTabTitle}
+                  style={styles.formInput}
+                  placeholder="Nome da tab"
+                  placeholderTextColor={COLORS.muted}
+                />
+
+                <Text style={styles.formLabel}>Instrumento</Text>
+                <View style={styles.readonlyField}>
+                  <Text style={styles.readonlyFieldText}>🎸 Baixo</Text>
                 </View>
-              ))}
 
-              <Text style={styles.formLabel}>Tab completa / notas adicionais</Text>
-              <TextInput
-                value={customTab}
-                onChangeText={setCustomTab}
-                multiline
-                textAlignVertical="top"
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="Cola ou escreve aqui uma versão completa, notas de execução, dedilhação, etc."
-                placeholderTextColor={COLORS.muted}
-                style={[styles.tabEditorInput, styles.tabEditorLarge]}
-              />
+                <Text style={styles.formLabel}>Número de cordas</Text>
+                <View style={styles.stringCountRow}>
+                  {[4, 5, 6].map((count) => (
+                    <TouchableOpacity
+                      key={count}
+                      style={[styles.stringCountButton, stringCount === count && styles.stringCountButtonActive]}
+                      onPress={() => resizeStrings(count)}
+                    >
+                      <Text style={[styles.stringCountText, stringCount === count && styles.stringCountTextActive]}>
+                        {count}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-              <View style={styles.editActions}>
-                <TouchableOpacity
-                  style={styles.secondaryButton}
-                  onPress={() => { setEditing(false); hydrateEditor(activeTab); }}
-                  disabled={savingContent}
-                >
-                  <Text style={styles.secondaryButtonText}>Cancelar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.primaryButton} onPress={saveOwnTab} disabled={savingContent}>
-                  {savingContent ? <ActivityIndicator /> : <Text style={styles.primaryText}>Guardar minha tab</Text>}
-                </TouchableOpacity>
+                <Text style={styles.formLabel}>Música associada</Text>
+                <View style={styles.readonlyField}>
+                  <Text style={styles.readonlyFieldText}>{song.title + ' — ' + song.artist}</Text>
+                </View>
+
+                <View style={styles.publicRow}>
+                  <Text style={styles.formLabel}>Pública</Text>
+                  <TouchableOpacity
+                    style={[styles.switchTrack, isPublic && styles.switchTrackOn]}
+                    onPress={() => setIsPublic((value) => !value)}
+                  >
+                    <View style={[styles.switchThumb, isPublic && styles.switchThumbOn]} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.editorMain}>
+                <View style={styles.editorModeHeader}>
+                  <View style={styles.modeSwitch}>
+                    <TouchableOpacity
+                      style={[styles.modeButton, editorMode === 'visual' && styles.modeButtonActive]}
+                      onPress={() => setEditorMode('visual')}
+                    >
+                      <Text style={[styles.modeButtonText, editorMode === 'visual' && styles.modeButtonTextActive]}>⌘ Editor Visual</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.modeButton, editorMode === 'text' && styles.modeButtonActive]}
+                      onPress={() => setEditorMode('text')}
+                    >
+                      <Text style={[styles.modeButtonText, editorMode === 'text' && styles.modeButtonTextActive]}>Texto Livre</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity style={styles.primaryButton} onPress={saveOwnTab} disabled={savingContent}>
+                    {savingContent ? <ActivityIndicator /> : <Text style={styles.primaryText}>▣ Guardar</Text>}
+                  </TouchableOpacity>
+                </View>
+
+                {editorMode === 'visual' ? (
+                  <View>
+                    {blocks.map((block, blockIndex) => (
+                      <View key={block.id} style={styles.visualBlockCard}>
+                        <View style={styles.visualBlockHeader}>
+                          <TextInput
+                            value={block.name}
+                            onChangeText={(name) => updateBlockName(blockIndex, name)}
+                            style={styles.blockNameInput}
+                            placeholder={'Bloco ' + (blockIndex + 1)}
+                            placeholderTextColor={COLORS.muted}
+                          />
+                          <View style={styles.blockHeaderActions}>
+                            <TouchableOpacity onPress={() => clearBlock(blockIndex)} style={styles.clearBlockButton}>
+                              <Text style={styles.clearBlockText}>Limpar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => removeBlock(blockIndex)} style={styles.removeBlockButton}>
+                              <Text style={styles.removeBlockText}>🗑 Remover bloco</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+
+                        {renderGrid(block, blockIndex, true)}
+                      </View>
+                    ))}
+
+                    <TouchableOpacity style={styles.addBlockButton} onPress={addBlock}>
+                      <Text style={styles.addBlockText}>＋ Adicionar bloco</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View>
+                    <Text style={styles.formLabel}>Texto livre</Text>
+                    <TextInput
+                      value={customTab}
+                      onChangeText={setCustomTab}
+                      multiline
+                      textAlignVertical="top"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      placeholder="Escreve ou cola aqui a tua tab em formato livre."
+                      placeholderTextColor={COLORS.muted}
+                      style={[styles.tabEditorInput, styles.tabEditorLarge]}
+                    />
+                  </View>
+                )}
               </View>
             </View>
           ) : (
             <View>
-              {Array.isArray(activeTab.sections) && activeTab.sections.some((section) => section?.content?.trim()) ? (
-                activeTab.sections
-                  .filter((section) => section?.content?.trim())
-                  .map((section, index) => (
-                    <View key={section.name + '-' + index} style={styles.tabSectionCard}>
-                      <Text style={styles.tabSectionTitle}>{section.name}</Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        <Text style={styles.asciiTabText} selectable>{section.content}</Text>
-                      </ScrollView>
-                    </View>
-                  ))
-              ) : activeTab.custom_tab?.trim() ? null : (
-                <View style={styles.feedbackBox}>
-                  <Text style={styles.emptyTitle}>Ainda não criaste a tua versão.</Text>
-                  <Text style={styles.feedbackText}>
-                    Usa “Editar” para organizar a música por Intro, Verso, Refrão, Bridge, Solo e Outro.
-                  </Text>
-                </View>
-              )}
-
-              {activeTab.custom_tab?.trim() ? (
+              {activeTab.editor_mode === 'text' && activeTab.custom_tab?.trim() ? (
                 <View style={styles.tabSectionCard}>
-                  <Text style={styles.tabSectionTitle}>Tab completa / notas</Text>
+                  <Text style={styles.tabSectionTitle}>Tab / notas</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     <Text style={styles.asciiTabText} selectable>{activeTab.custom_tab}</Text>
                   </ScrollView>
                 </View>
-              ) : null}
+              ) : (
+                <View>
+                  {(Array.isArray(activeTab.sections) ? activeTab.sections : [])
+                    .filter((block) => block?.type === 'visual-block' || Array.isArray(block?.cells))
+                    .map((block, blockIndex) => (
+                      <View key={block.id || String(blockIndex)} style={styles.visualBlockCard}>
+                        <Text style={styles.tabSectionTitle}>{block.name || ('Bloco ' + (blockIndex + 1))}</Text>
+                        {renderGrid({
+                          ...block,
+                          cells: Array.from({ length: activeTab.string_count || 4 }, (_, rowIndex) => {
+                            const existing = Array.isArray(block?.cells?.[rowIndex]) ? block.cells[rowIndex] : [];
+                            return Array.from({ length: GRID_COLUMNS }, (_, colIndex) => String(existing[colIndex] ?? ''));
+                          }),
+                        }, blockIndex, false)}
+                      </View>
+                    ))}
+
+                  {!Array.isArray(activeTab.sections) || !activeTab.sections.some((block) => Array.isArray(block?.cells)) ? (
+                    <View style={styles.feedbackBox}>
+                      <Text style={styles.emptyTitle}>Ainda não criaste a tua tab visual.</Text>
+                      <Text style={styles.feedbackText}>Carrega em “Editar” para adicionar blocos e posições.</Text>
+                    </View>
+                  ) : null}
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -1490,7 +1700,47 @@ const styles = StyleSheet.create({
   asciiTabText: { color: COLORS.text, fontFamily: 'monospace', fontSize: 14, lineHeight: 21 },
   searchVersionsBlock: { marginTop: 12 },
 
-    createPlaylistRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  
+  visualEditorShell: { gap: 16 },
+  visualEditorShellTablet: { flexDirection: 'row', alignItems: 'flex-start' },
+  editorSettingsCard: { borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#0f1522', borderRadius: 14, padding: 15, marginBottom: 4 },
+  editorSettingsCardTablet: { width: 292, flexShrink: 0 },
+  editorPanelTitle: { color: COLORS.text, fontWeight: '900', fontSize: 15, marginBottom: 14 },
+  editorMain: { flex: 1, minWidth: 0 },
+  editorModeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 14 },
+  readonlyField: { backgroundColor: COLORS.panel2, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 13, paddingVertical: 12, marginBottom: 10 },
+  readonlyFieldText: { color: '#d8e0ee', fontSize: 14, fontWeight: '700' },
+  stringCountRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  stringCountButton: { width: 48, height: 40, borderRadius: 9, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.panel2, alignItems: 'center', justifyContent: 'center' },
+  stringCountButtonActive: { backgroundColor: COLORS.purple2, borderColor: COLORS.purple },
+  stringCountText: { color: COLORS.muted, fontWeight: '800' },
+  stringCountTextActive: { color: COLORS.text },
+  publicRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
+  switchTrack: { width: 42, height: 24, borderRadius: 12, backgroundColor: '#202838', padding: 3, justifyContent: 'center' },
+  switchTrackOn: { backgroundColor: COLORS.purple2 },
+  switchThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#6d778b' },
+  switchThumbOn: { alignSelf: 'flex-end', backgroundColor: '#fff' },
+  visualBlockCard: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: '#0d1320', padding: 14, marginBottom: 14 },
+  visualBlockHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 },
+  blockNameInput: { minWidth: 170, flexGrow: 1, maxWidth: 260, color: COLORS.text, backgroundColor: COLORS.panel2, borderRadius: 9, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 12, paddingVertical: 9, fontWeight: '800' },
+  blockHeaderActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  clearBlockButton: { borderWidth: 1, borderColor: '#7c2d3b', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
+  clearBlockText: { color: '#ff6b7d', fontSize: 12, fontWeight: '800' },
+  removeBlockButton: { paddingHorizontal: 6, paddingVertical: 7 },
+  removeBlockText: { color: '#ff536a', fontSize: 12, fontWeight: '800' },
+  visualGridScroll: { paddingBottom: 4, paddingRight: 6 },
+  visualGridRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  stringLabel: { width: 22, color: '#a968ff', fontWeight: '900', textAlign: 'center', fontFamily: 'monospace' },
+  stringDivider: { color: COLORS.muted, width: 10, textAlign: 'center', fontFamily: 'monospace' },
+  fretCell: { width: 34, height: 30, marginRight: 3, borderWidth: 1, borderColor: '#202a3d', borderRadius: 5, backgroundColor: '#111827', color: COLORS.text, padding: 0, textAlign: 'center', fontFamily: 'monospace', fontWeight: '800', fontSize: 13 },
+  fretCellView: { width: 34, height: 30, marginRight: 3, borderWidth: 1, borderColor: '#202a3d', borderRadius: 5, backgroundColor: '#111827', alignItems: 'center', justifyContent: 'center' },
+  fretCellFilled: { borderColor: '#7850c7', backgroundColor: '#2a1c4a' },
+  fretCellTextFilled: { color: '#d8c6ff', fontFamily: 'monospace', fontWeight: '900', fontSize: 13 },
+  fretCellTextEmpty: { color: '#56627a', fontFamily: 'monospace', fontSize: 13 },
+  addBlockButton: { borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.border, borderRadius: 10, paddingVertical: 13, alignItems: 'center', marginBottom: 12 },
+  addBlockText: { color: COLORS.text, fontWeight: '800' },
+
+  createPlaylistRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   playlistRow: { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#121a28' },
   playlistIcon: { width: 46, height: 46, borderRadius: 12, marginRight: 12, backgroundColor: '#2b1d48', alignItems: 'center', justifyContent: 'center' },
   playlistIconText: { color: '#c6a7ff', fontSize: 22 },
