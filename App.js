@@ -12,6 +12,7 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 
 const COLORS = {
@@ -31,6 +32,7 @@ const SUPABASE_URL = 'https://zndlradxdcpfrrxirswy.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable__RU-9-tCv4jTLaovhNg25A_1WqQsiFy';
 const SPOTIFY_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spotify-search`;
 const LIBRARY_URL = `${SUPABASE_URL}/functions/v1/library`;
+const TAB_SEARCH_URL = `${SUPABASE_URL}/functions/v1/tab-search`;
 
 function normalizeSong(song) {
   if (!song) return null;
@@ -103,10 +105,14 @@ function TabButton({ label, active, onPress }) {
   );
 }
 
-function SongDetail({ song, onBack, onPlaylist, onSongUpdate }) {
+function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate }) {
   const [tab, setTab] = useState('Letra');
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsError, setLyricsError] = useState('');
+  const [bassResults, setBassResults] = useState([]);
+  const [bassLoading, setBassLoading] = useState(false);
+  const [bassSearched, setBassSearched] = useState(false);
+  const [bassError, setBassError] = useState('');
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
 
@@ -123,6 +129,36 @@ function SongDetail({ song, onBack, onPlaylist, onSongUpdate }) {
       setLyricsLoading(false);
     }
   }
+
+  async function searchBassTabs() {
+    setBassLoading(true);
+    setBassError('');
+    try {
+      const q = `${song.artist} ${song.title}`;
+      const response = await fetch(`${TAB_SEARCH_URL}?q=${encodeURIComponent(q)}`, {
+        headers: {
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+          Accept: 'application/json',
+        },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'Não foi possível procurar tablaturas.');
+      setBassResults(data.results || []);
+      setBassSearched(true);
+    } catch (error) {
+      setBassResults([]);
+      setBassSearched(true);
+      setBassError(error?.message || 'Erro ao procurar tablaturas de baixo.');
+    } finally {
+      setBassLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tab === 'Baixo' && !bassSearched && !bassLoading) {
+      searchBassTabs();
+    }
+  }, [tab, bassSearched, bassLoading, song.id]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -149,7 +185,7 @@ function SongDetail({ song, onBack, onPlaylist, onSongUpdate }) {
               <TouchableOpacity style={styles.secondaryButton}>
                 <Text style={styles.secondaryButtonText}>♡ Favoritar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryButton}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={onEdit}>
                 <Text style={styles.secondaryButtonText}>✎ Editar</Text>
               </TouchableOpacity>
             </View>
@@ -178,10 +214,16 @@ function SongDetail({ song, onBack, onPlaylist, onSongUpdate }) {
                   ? song.lyricsSource
                     ? `Letra automática · ${song.lyricsSource}`
                     : 'Letra da música'
-                  : 'Conteúdo da música'}
+                  : tab === 'Baixo'
+                    ? 'Pesquisa automática de tablaturas de baixo'
+                    : 'Conteúdo da música'}
               </Text>
             </View>
-            {tab !== 'Letra' ? (
+            {tab === 'Baixo' ? (
+              <TouchableOpacity style={styles.primarySmall} onPress={searchBassTabs} disabled={bassLoading}>
+                <Text style={styles.primaryText}>↻ Procurar</Text>
+              </TouchableOpacity>
+            ) : tab !== 'Letra' ? (
               <TouchableOpacity style={styles.primarySmall}>
                 <Text style={styles.primaryText}>+ Adicionar</Text>
               </TouchableOpacity>
@@ -208,6 +250,56 @@ function SongDetail({ song, onBack, onPlaylist, onSongUpdate }) {
                 </TouchableOpacity>
               </View>
             )
+          ) : tab === 'Baixo' ? (
+            <View>
+              {bassLoading ? (
+                <View style={styles.feedbackBox}>
+                  <ActivityIndicator />
+                  <Text style={styles.feedbackText}>A procurar versões com baixo…</Text>
+                </View>
+              ) : bassError ? (
+                <View>
+                  <Text style={styles.errorInline}>{bassError}</Text>
+                </View>
+              ) : bassSearched && bassResults.length === 0 ? (
+                <View>
+                  <Text style={styles.emptyTitle}>Não encontrei uma versão com baixo.</Text>
+                  <Text style={styles.emptyText}>Podes voltar a procurar ou adicionar uma tab manualmente.</Text>
+                </View>
+              ) : (
+                bassResults.map((result) => (
+                  <View key={String(result.songId)} style={styles.bassResultCard}>
+                    <View style={styles.bassResultHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.songTitle}>{result.title}</Text>
+                        <Text style={styles.songArtist}>{result.artist}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.secondaryButton}
+                        onPress={() => Linking.openURL(result.songsterrUrl || result.searchUrl)}
+                      >
+                        <Text style={styles.secondaryButtonText}>Abrir tab ↗</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {result.bassTracks.map((track, index) => (
+                      <View key={`${result.songId}-${index}`} style={styles.bassTrackRow}>
+                        <Text style={styles.bassTrackName}>{track.name || track.instrument}</Text>
+                        <Text style={styles.bassTrackMeta}>
+                          {track.instrument}
+                          {track.tuningLabel ? ` · ${track.tuningLabel}` : ''}
+                          {track.views ? ` · ${track.views.toLocaleString()} visualizações` : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ))
+              )}
+
+              <TouchableOpacity style={styles.manualButton}>
+                <Text style={styles.secondaryButtonText}>＋ Adicionar tab de baixo manualmente</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <View>
               <Text style={styles.emptyTitle}>Ainda não existe conteúdo em {tab.toLowerCase()}.</Text>
@@ -216,6 +308,88 @@ function SongDetail({ song, onBack, onPlaylist, onSongUpdate }) {
               </Text>
             </View>
           )}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function EditSong({ song, onBack, onSave }) {
+  const [title, setTitle] = useState(song.title || '');
+  const [artist, setArtist] = useState(song.artist || '');
+  const [album, setAlbum] = useState(song.album || '');
+  const [year, setYear] = useState(song.year ? String(song.year) : '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save() {
+    if (!title.trim() || !artist.trim()) {
+      setError('Nome da música e artista são obrigatórios.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    try {
+      await onSave({
+        title: title.trim(),
+        artist: artist.trim(),
+        album: album.trim(),
+        year: year.trim(),
+      });
+    } catch (err) {
+      setError(err?.message || 'Não foi possível guardar as alterações.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.editWrap}>
+        <View style={styles.topLine}>
+          <TouchableOpacity onPress={onBack}><Text style={styles.backText}>‹ Cancelar</Text></TouchableOpacity>
+          <Text style={styles.screenTitle}>Editar música</Text>
+          <View style={{ width: 55 }} />
+        </View>
+
+        <View style={styles.editHero}>
+          <View style={styles.editCover}><SongCover song={song} large /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sectionLead}>Dados da música</Text>
+            <Text style={styles.sectionDescription}>
+              Podes corrigir os dados importados do catálogo sem alterar a gravação original associada.
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.formLabel}>Nome da música</Text>
+        <TextInput value={title} onChangeText={setTitle} style={styles.formInput} placeholderTextColor={COLORS.muted} />
+
+        <Text style={styles.formLabel}>Artista</Text>
+        <TextInput value={artist} onChangeText={setArtist} style={styles.formInput} placeholderTextColor={COLORS.muted} />
+
+        <Text style={styles.formLabel}>Álbum</Text>
+        <TextInput value={album} onChangeText={setAlbum} style={styles.formInput} placeholderTextColor={COLORS.muted} />
+
+        <Text style={styles.formLabel}>Ano</Text>
+        <TextInput
+          value={year}
+          onChangeText={(value) => setYear(value.replace(/[^0-9]/g, '').slice(0, 4))}
+          keyboardType="number-pad"
+          style={styles.formInput}
+          placeholderTextColor={COLORS.muted}
+        />
+
+        {error ? <Text style={styles.errorInline}>{error}</Text> : null}
+
+        <View style={styles.editActions}>
+          <TouchableOpacity style={styles.secondaryButton} onPress={onBack} disabled={saving}>
+            <Text style={styles.secondaryButtonText}>Cancelar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.primaryButton} onPress={save} disabled={saving}>
+            {saving ? <ActivityIndicator /> : <Text style={styles.primaryText}>Guardar alterações</Text>}
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -674,6 +848,13 @@ export default function App() {
     setScreen('detail');
   }
 
+  async function saveSongEdits(fields) {
+    const data = await libraryPost('update_song', { songId: selected.id, fields });
+    const updated = normalizeSong(data.song);
+    updateSong(updated);
+    setScreen('detail');
+  }
+
   async function createPlaylist(name) {
     const data = await libraryPost('create_playlist', { name });
     const playlist = data.playlist;
@@ -703,7 +884,18 @@ export default function App() {
         song={selected}
         onBack={() => setScreen('songs')}
         onPlaylist={() => setScreen('playlistPicker')}
+        onEdit={() => setScreen('edit')}
         onSongUpdate={updateSong}
+      />
+    );
+  }
+
+  if (screen === 'edit' && selected) {
+    return (
+      <EditSong
+        song={selected}
+        onBack={() => setScreen('detail')}
+        onSave={saveSongEdits}
       />
     );
   }
@@ -928,6 +1120,17 @@ const styles = StyleSheet.create({
   emptyTitle: { color: COLORS.text, fontSize: 17, fontWeight: '700', marginBottom: 8 },
   emptyText: { color: COLORS.muted, lineHeight: 21, maxWidth: 650 },
   lyricsText: { color: COLORS.text, fontSize: 18, lineHeight: 30, letterSpacing: 0.1 },
+  editWrap: { padding: 20, paddingBottom: 50, maxWidth: 720, width: '100%', alignSelf: 'center' },
+  editHero: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 18 },
+  editCover: { width: 96, height: 96, borderRadius: 14, overflow: 'hidden', backgroundColor: COLORS.panel2 },
+  formLabel: { color: '#c6d0e2', fontWeight: '700', fontSize: 13, marginBottom: 7, marginTop: 8 },
+  formInput: { backgroundColor: COLORS.panel2, color: COLORS.text, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 15, paddingVertical: 13, fontSize: 16, marginBottom: 10 },
+  editActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 18 },
+  bassResultCard: { borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.panel2, borderRadius: 14, padding: 14, marginBottom: 12 },
+  bassResultHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  bassTrackRow: { borderTopWidth: 1, borderTopColor: '#263047', paddingTop: 10, marginTop: 8 },
+  bassTrackName: { color: COLORS.text, fontWeight: '800', fontSize: 14 },
+  bassTrackMeta: { color: COLORS.muted, marginTop: 4, fontSize: 12, lineHeight: 18 },
 
   createPlaylistRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   playlistRow: { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#121a28' },
