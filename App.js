@@ -54,32 +54,72 @@ function normalizeSong(song) {
   };
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function requestLibrary(url, options, fallbackMessage) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      let data = null;
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
+      }
+
+      if (response.ok) return data || {};
+
+      const message = data?.error || data?.message || fallbackMessage;
+      lastError = new Error(message);
+
+      if (![500, 502, 503, 504].includes(response.status)) {
+        throw lastError;
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(fallbackMessage);
+      if (attempt === 2) break;
+    }
+
+    if (attempt < 2) {
+      await wait(700 * (attempt + 1));
+    }
+  }
+
+  throw lastError || new Error(fallbackMessage);
+}
+
 async function libraryGet(action, extra = {}) {
   const params = new URLSearchParams({ action, ...extra });
-  const response = await fetch(`${LIBRARY_URL}?${params.toString()}`, {
-    headers: {
-      apikey: SUPABASE_PUBLISHABLE_KEY,
-      Accept: 'application/json',
+  return requestLibrary(
+    `${LIBRARY_URL}?${params.toString()}`,
+    {
+      headers: {
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+        Accept: 'application/json',
+      },
     },
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data?.error || 'Erro ao aceder à biblioteca.');
-  return data;
+    'Erro ao aceder à biblioteca.'
+  );
 }
 
 async function libraryPost(action, payload = {}) {
-  const response = await fetch(LIBRARY_URL, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_PUBLISHABLE_KEY,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
+  return requestLibrary(
+    LIBRARY_URL,
+    {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ action, ...payload }),
     },
-    body: JSON.stringify({ action, ...payload }),
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data?.error || 'Erro ao atualizar a biblioteca.');
-  return data;
+    'Erro ao atualizar a biblioteca.'
+  );
 }
 
 function openExternalLink(url) {
@@ -1183,7 +1223,10 @@ function SetlistsScreen({ setlists, loading, onBack, onCreate, onOpen }) {
 
   async function create() {
     const value = name.trim();
-    if (!value) return;
+    if (!value) {
+      setError('Escreve um nome para o alinhamento.');
+      return;
+    }
     setCreating(true);
     setError('');
     try {
@@ -1985,7 +2028,14 @@ export default function App() {
             style={styles.searchInput}
           />
 
-          {libraryError ? <Text style={styles.errorInline}>{libraryError}</Text> : null}
+          {libraryError ? (
+            <View style={styles.inlineErrorRow}>
+              <Text style={[styles.errorInline, { flex: 1 }]}>{libraryError}</Text>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => { setLoadingLibrary(true); loadSongs(); }}>
+                <Text style={styles.secondaryButtonText}>Tentar novamente</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
           {loadingLibrary ? (
             <View style={styles.feedbackBox}><ActivityIndicator /></View>
@@ -2099,6 +2149,7 @@ const styles = StyleSheet.create({
   errorTitle: { color: '#ffd5df', fontWeight: '800', marginBottom: 5 },
   errorText: { color: '#d9a8b5', lineHeight: 19 },
   errorInline: { color: COLORS.danger, marginVertical: 10, lineHeight: 19 },
+  inlineErrorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   retryButton: { marginTop: 14, alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12 },
 
   detailWrap: { padding: 20, paddingBottom: 50, maxWidth: 1050, width: '100%', alignSelf: 'center' },
