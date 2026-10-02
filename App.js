@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   SafeAreaView,
   View,
@@ -13,6 +13,7 @@ import {
   Image,
   ActivityIndicator,
   Linking,
+  PanResponder,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -45,6 +46,8 @@ function normalizeSong(song) {
     thumbnail: song.thumbnail_url ?? song.thumbnail ?? null,
     durationMs: song.duration_ms ?? song.durationMs ?? null,
     spotifyUrl: song.spotify_url ?? song.spotifyUrl ?? null,
+    youtubeUrl: song.youtube_url ?? song.youtubeUrl ?? null,
+    customUrl: song.custom_url ?? song.customUrl ?? null,
     syncedLyrics: song.synced_lyrics ?? song.syncedLyrics ?? null,
     lyricsSource: song.lyrics_source ?? song.lyricsSource ?? null,
     lyricsSourceId: song.lyrics_source_id ?? song.lyricsSourceId ?? null,
@@ -77,6 +80,20 @@ async function libraryPost(action, payload = {}) {
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error || 'Erro ao atualizar a biblioteca.');
   return data;
+}
+
+function openExternalLink(url) {
+  if (!url) return;
+  const value = /^https?:\/\//i.test(url) ? url : 'https://' + url;
+  Linking.openURL(value).catch(() => {});
+}
+
+function moveItem(list, from, to) {
+  if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return list;
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
 }
 
 function SongCover({ song, large = false }) {
@@ -725,7 +742,7 @@ function BassTabPanel({ song }) {
   );
 }
 
-function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate }) {
+function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate, setlistContext }) {
   const [tab, setTab] = useState('Letra');
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsError, setLyricsError] = useState('');
@@ -754,6 +771,31 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate }) {
           <Text style={styles.backText}>‹  Voltar</Text>
         </TouchableOpacity>
 
+        {setlistContext ? (
+          <View style={styles.concertNav}>
+            <TouchableOpacity
+              style={[styles.concertNavButton, setlistContext.index <= 0 && styles.concertNavButtonDisabled]}
+              onPress={setlistContext.onPrevious}
+              disabled={setlistContext.index <= 0}
+            >
+              <Text style={styles.concertNavButtonText}>‹ Anterior</Text>
+            </TouchableOpacity>
+            <View style={styles.concertNavCenter}>
+              <Text style={styles.concertNavName} numberOfLines={1}>{setlistContext.name}</Text>
+              <Text style={styles.concertNavPosition}>
+                {setlistContext.index + 1} / {setlistContext.total}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.concertNavButton, setlistContext.index >= setlistContext.total - 1 && styles.concertNavButtonDisabled]}
+              onPress={setlistContext.onNext}
+              disabled={setlistContext.index >= setlistContext.total - 1}
+            >
+              <Text style={styles.concertNavButtonText}>Seguinte ›</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         <View style={[styles.hero, tablet && styles.heroTablet]}>
           <View style={[styles.coverLarge, tablet && styles.coverLargeTablet]}>
             <SongCover song={song} large />
@@ -764,6 +806,22 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate }) {
             <Text style={styles.meta}>
               {song.album || 'Álbum desconhecido'}{song.year ? ` · ${song.year}` : ''}
             </Text>
+
+            {(song.youtubeUrl || song.customUrl) ? (
+              <View style={styles.externalLinksRow}>
+                {song.youtubeUrl ? (
+                  <TouchableOpacity style={styles.youtubeLinkButton} onPress={() => openExternalLink(song.youtubeUrl)}>
+                    <Text style={styles.externalLinkText}>▶ YouTube</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {song.customUrl ? (
+                  <TouchableOpacity style={styles.externalLinkButton} onPress={() => openExternalLink(song.customUrl)}>
+                    <Text style={styles.externalLinkText}>↗ Link</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.primarySmall} onPress={onPlaylist}>
                 <Text style={styles.primaryText}>＋ Playlist</Text>
@@ -853,6 +911,8 @@ function EditSong({ song, onBack, onSave }) {
   const [artist, setArtist] = useState(song.artist || '');
   const [album, setAlbum] = useState(song.album || '');
   const [year, setYear] = useState(song.year ? String(song.year) : '');
+  const [youtubeUrl, setYoutubeUrl] = useState(song.youtubeUrl || '');
+  const [customUrl, setCustomUrl] = useState(song.customUrl || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -870,6 +930,8 @@ function EditSong({ song, onBack, onSave }) {
         artist: artist.trim(),
         album: album.trim(),
         year: year.trim(),
+        youtubeUrl: youtubeUrl.trim(),
+        customUrl: customUrl.trim(),
       });
     } catch (err) {
       setError(err?.message || 'Não foi possível guardar as alterações.');
@@ -912,6 +974,30 @@ function EditSong({ song, onBack, onSave }) {
           onChangeText={(value) => setYear(value.replace(/[^0-9]/g, '').slice(0, 4))}
           keyboardType="number-pad"
           style={styles.formInput}
+          placeholderTextColor={COLORS.muted}
+        />
+
+        <Text style={styles.formLabel}>Link YouTube</Text>
+        <TextInput
+          value={youtubeUrl}
+          onChangeText={setYoutubeUrl}
+          keyboardType="url"
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={styles.formInput}
+          placeholder="https://youtube.com/..."
+          placeholderTextColor={COLORS.muted}
+        />
+
+        <Text style={styles.formLabel}>Outro link</Text>
+        <TextInput
+          value={customUrl}
+          onChangeText={setCustomUrl}
+          keyboardType="url"
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={styles.formInput}
+          placeholder="https://..."
           placeholderTextColor={COLORS.muted}
         />
 
@@ -1084,6 +1170,307 @@ function AddSong({ onClose, onAdd }) {
         <TouchableOpacity style={styles.manualButton}>
           <Text style={styles.secondaryButtonText}>✎ Criar música manualmente</Text>
         </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+
+function SetlistsScreen({ setlists, loading, onBack, onCreate, onOpen }) {
+  const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+
+  async function create() {
+    const value = name.trim();
+    if (!value) return;
+    setCreating(true);
+    setError('');
+    try {
+      await onCreate(value);
+      setName('');
+    } catch (err) {
+      setError(err?.message || 'Não foi possível criar o alinhamento.');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.screen}>
+        <View style={styles.topLine}>
+          <TouchableOpacity onPress={onBack}><Text style={styles.backText}>‹ Voltar</Text></TouchableOpacity>
+          <Text style={styles.screenTitle}>Alinhamentos</Text>
+          <View style={{ width: 55 }} />
+        </View>
+
+        <Text style={styles.sectionLead}>Alinhamentos de concerto</Text>
+        <Text style={styles.sectionDescription}>
+          Organiza as músicas pela ordem do concerto e abre-as depois em sequência.
+        </Text>
+
+        <View style={styles.createPlaylistRow}>
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            onSubmitEditing={create}
+            placeholder="Nome do alinhamento"
+            placeholderTextColor={COLORS.muted}
+            style={[styles.searchInput, styles.searchInputGrow]}
+          />
+          <TouchableOpacity style={styles.primaryButton} onPress={create} disabled={creating}>
+            {creating ? <ActivityIndicator /> : <Text style={styles.primaryText}>＋ Criar</Text>}
+          </TouchableOpacity>
+        </View>
+
+        {error ? <Text style={styles.errorInline}>{error}</Text> : null}
+
+        {loading ? (
+          <View style={styles.feedbackBox}><ActivityIndicator /></View>
+        ) : setlists.length === 0 ? (
+          <View style={styles.feedbackBox}>
+            <Text style={styles.emptyTitle}>Ainda não tens alinhamentos.</Text>
+            <Text style={styles.feedbackText}>Cria o primeiro para preparar a ordem de um concerto.</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={setlists}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => (
+              <TouchableOpacity style={styles.playlistRow} onPress={() => onOpen(item)}>
+                <View style={styles.setlistIcon}><Text style={styles.setlistIconText}>≡</Text></View>
+                <View style={styles.songInfo}>
+                  <Text style={styles.songTitle}>{item.name}</Text>
+                  <Text style={styles.songArtist}>{item.song_count ?? 0} músicas</Text>
+                </View>
+                <Text style={styles.chevron}>›</Text>
+              </TouchableOpacity>
+            )}
+          />
+        )}
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function DraggableSetlistRow({
+  item,
+  index,
+  dragging,
+  onOpen,
+  onRemove,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
+}) {
+  const panResponder = useMemo(
+    () => PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => onDragStart(index),
+      onPanResponderMove: (_, gesture) => onDragMove(gesture.dy),
+      onPanResponderRelease: () => onDragEnd(),
+      onPanResponderTerminate: () => onDragEnd(),
+    }),
+    [index, onDragStart, onDragMove, onDragEnd]
+  );
+
+  return (
+    <View style={[styles.setlistSongRow, dragging && styles.setlistSongRowDragging]}>
+      <View {...panResponder.panHandlers} style={styles.dragHandle}>
+        <Text style={styles.dragHandleText}>≡</Text>
+      </View>
+      <Text style={styles.setlistPosition}>{index + 1}</Text>
+      <TouchableOpacity style={styles.setlistSongMain} onPress={() => onOpen(item, index)}>
+        <View style={styles.coverSmall}><SongCover song={item} /></View>
+        <View style={styles.songInfo}>
+          <Text style={styles.songTitle} numberOfLines={1}>{item.title}</Text>
+          <Text style={styles.songArtist} numberOfLines={1}>{item.artist}</Text>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.removeSetlistSongButton} onPress={() => onRemove(item)}>
+        <Text style={styles.removeSetlistSongText}>×</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function SetlistDetail({ setlist, librarySongs, onBack, onOpenSong, onChanged }) {
+  const [songs, setSongs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [addQuery, setAddQuery] = useState('');
+  const [busySongId, setBusySongId] = useState(null);
+  const [error, setError] = useState('');
+  const [draggingId, setDraggingId] = useState(null);
+  const dragStartIndex = useRef(-1);
+  const dragBase = useRef([]);
+  const currentOrder = useRef([]);
+
+  useEffect(() => {
+    currentOrder.current = songs;
+  }, [songs]);
+
+  async function load() {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await libraryGet('setlist_songs', { setlistId: setlist.id });
+      setSongs((data.songs || []).map(normalizeSong));
+    } catch (err) {
+      setError(err?.message || 'Não foi possível abrir o alinhamento.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, [setlist.id]);
+
+  async function addSong(song) {
+    setBusySongId(song.id);
+    setError('');
+    try {
+      await libraryPost('add_to_setlist', { setlistId: setlist.id, songId: song.id });
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setError(err?.message || 'Não foi possível adicionar a música.');
+    } finally {
+      setBusySongId(null);
+    }
+  }
+
+  async function removeSong(song) {
+    setBusySongId(song.id);
+    setError('');
+    try {
+      await libraryPost('remove_from_setlist', { setlistId: setlist.id, songId: song.id });
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setError(err?.message || 'Não foi possível remover a música.');
+    } finally {
+      setBusySongId(null);
+    }
+  }
+
+  function startDrag(index) {
+    dragStartIndex.current = index;
+    dragBase.current = [...songs];
+    setDraggingId(songs[index]?.id || null);
+  }
+
+  function moveDrag(dy) {
+    const start = dragStartIndex.current;
+    if (start < 0 || !dragBase.current.length) return;
+    const target = Math.max(0, Math.min(dragBase.current.length - 1, start + Math.round(dy / 74)));
+    setSongs(moveItem(dragBase.current, start, target));
+  }
+
+  async function endDrag() {
+    const order = currentOrder.current;
+    const hadDrag = dragStartIndex.current >= 0;
+    dragStartIndex.current = -1;
+    dragBase.current = [];
+    setDraggingId(null);
+    if (!hadDrag || !order.length) return;
+
+    try {
+      await libraryPost('reorder_setlist', {
+        setlistId: setlist.id,
+        songIds: order.map((item) => item.id),
+      });
+      onChanged?.();
+    } catch (err) {
+      setError(err?.message || 'Não foi possível guardar a nova ordem.');
+      load();
+    }
+  }
+
+  const availableSongs = librarySongs.filter((song) => {
+    if (songs.some((item) => item.id === song.id)) return false;
+    const needle = addQuery.trim().toLowerCase();
+    if (!needle) return true;
+    return (song.title + ' ' + song.artist).toLowerCase().includes(needle);
+  });
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.screen}>
+        <View style={styles.topLine}>
+          <TouchableOpacity onPress={onBack}><Text style={styles.backText}>‹ Alinhamentos</Text></TouchableOpacity>
+          <Text style={styles.screenTitle}>{setlist.name}</Text>
+          <TouchableOpacity onPress={() => setAdding((value) => !value)}>
+            <Text style={styles.addText}>{adding ? 'Fechar' : '＋ Música'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.setlistIntroRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sectionLead}>{setlist.name}</Text>
+            <Text style={styles.sectionDescription}>
+              Arrasta pelo símbolo ≡ para mudar a ordem. Toca numa música para iniciar o modo concerto.
+            </Text>
+          </View>
+          <View style={styles.setlistCountPill}><Text style={styles.setlistCountText}>{songs.length}</Text></View>
+        </View>
+
+        {error ? <Text style={styles.errorInline}>{error}</Text> : null}
+
+        {adding ? (
+          <View style={styles.addSongsPanel}>
+            <TextInput
+              value={addQuery}
+              onChangeText={setAddQuery}
+              placeholder="Pesquisar na biblioteca..."
+              placeholderTextColor={COLORS.muted}
+              style={styles.searchInput}
+            />
+            <ScrollView style={styles.addSongsScroll} keyboardShouldPersistTaps="handled">
+              {availableSongs.length === 0 ? (
+                <Text style={styles.feedbackText}>Não há mais músicas para adicionar.</Text>
+              ) : availableSongs.map((song) => (
+                <View key={song.id} style={styles.addSongRow}>
+                  <View style={styles.coverSmall}><SongCover song={song} /></View>
+                  <View style={styles.songInfo}>
+                    <Text style={styles.songTitle}>{song.title}</Text>
+                    <Text style={styles.songArtist}>{song.artist}</Text>
+                  </View>
+                  <TouchableOpacity style={styles.primarySmall} onPress={() => addSong(song)} disabled={busySongId === song.id}>
+                    {busySongId === song.id ? <ActivityIndicator /> : <Text style={styles.primaryText}>＋</Text>}
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {loading ? (
+          <View style={styles.feedbackBox}><ActivityIndicator /></View>
+        ) : songs.length === 0 ? (
+          <View style={styles.feedbackBox}>
+            <Text style={styles.emptyTitle}>Alinhamento vazio.</Text>
+            <Text style={styles.feedbackText}>Carrega em “＋ Música” para escolher músicas da biblioteca.</Text>
+          </View>
+        ) : (
+          <ScrollView scrollEnabled={!draggingId} contentContainerStyle={styles.setlistSongsList}>
+            {songs.map((item, index) => (
+              <DraggableSetlistRow
+                key={item.id}
+                item={item}
+                index={index}
+                dragging={draggingId === item.id}
+                onOpen={(song, songIndex) => onOpenSong(song, songs, songIndex)}
+                onRemove={removeSong}
+                onDragStart={startDrag}
+                onDragMove={moveDrag}
+                onDragEnd={endDrag}
+              />
+            ))}
+          </ScrollView>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -1329,11 +1716,15 @@ export default function App() {
   const tablet = width >= 760;
   const [songs, setSongs] = useState([]);
   const [playlists, setPlaylists] = useState([]);
+  const [setlists, setSetlists] = useState([]);
   const [loadingLibrary, setLoadingLibrary] = useState(true);
   const [loadingPlaylists, setLoadingPlaylists] = useState(true);
+  const [loadingSetlists, setLoadingSetlists] = useState(true);
   const [screen, setScreen] = useState('songs');
   const [selected, setSelected] = useState(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+  const [selectedSetlist, setSelectedSetlist] = useState(null);
+  const [concertContext, setConcertContext] = useState(null);
   const [query, setQuery] = useState('');
   const [libraryError, setLibraryError] = useState('');
 
@@ -1361,9 +1752,22 @@ export default function App() {
     }
   }
 
+  async function loadSetlists() {
+    setLoadingSetlists(true);
+    try {
+      const data = await libraryGet('setlists');
+      setSetlists(data.setlists || []);
+    } catch (error) {
+      setLibraryError(error?.message || 'Não foi possível carregar os alinhamentos.');
+    } finally {
+      setLoadingSetlists(false);
+    }
+  }
+
   useEffect(() => {
     loadSongs();
     loadPlaylists();
+    loadSetlists();
   }, []);
 
   const filtered = useMemo(
@@ -1379,6 +1783,7 @@ export default function App() {
       return [stored, ...without];
     });
     setSelected(stored);
+    setConcertContext(null);
     setScreen('detail');
   }
 
@@ -1387,6 +1792,13 @@ export default function App() {
     const updated = normalizeSong(data.song);
     updateSong(updated);
     setScreen('detail');
+  }
+
+  async function createSetlist(name) {
+    const data = await libraryPost('create_setlist', { name });
+    const setlist = data.setlist;
+    setSetlists((prev) => [setlist, ...prev]);
+    return setlist;
   }
 
   async function createPlaylist(name) {
@@ -1403,6 +1815,25 @@ export default function App() {
     );
   }
 
+  function openConcertSong(song, orderedSongs, index) {
+    setSelected(song);
+    setConcertContext({
+      setlist: selectedSetlist,
+      songs: orderedSongs,
+      index,
+    });
+    setScreen('detail');
+  }
+
+  function goConcert(delta) {
+    if (!concertContext) return;
+    const nextIndex = concertContext.index + delta;
+    if (nextIndex < 0 || nextIndex >= concertContext.songs.length) return;
+    const nextSong = concertContext.songs[nextIndex];
+    setSelected(nextSong);
+    setConcertContext((prev) => prev ? { ...prev, index: nextIndex } : prev);
+  }
+
   function updateSong(updated) {
     setSelected(updated);
     setSongs((prev) => prev.map((s) => s.id === updated.id ? updated : s));
@@ -1416,10 +1847,17 @@ export default function App() {
     return (
       <SongDetail
         song={selected}
-        onBack={() => setScreen('songs')}
+        onBack={() => setScreen(concertContext ? 'setlistDetail' : 'songs')}
         onPlaylist={() => setScreen('playlistPicker')}
         onEdit={() => setScreen('edit')}
         onSongUpdate={updateSong}
+        setlistContext={concertContext ? {
+          name: concertContext.setlist?.name || 'Alinhamento',
+          index: concertContext.index,
+          total: concertContext.songs.length,
+          onPrevious: () => goConcert(-1),
+          onNext: () => goConcert(1),
+        } : null}
       />
     );
   }
@@ -1446,6 +1884,37 @@ export default function App() {
     );
   }
 
+  if (screen === 'setlists') {
+    return (
+      <SetlistsScreen
+        setlists={setlists}
+        loading={loadingSetlists}
+        onBack={() => setScreen('songs')}
+        onCreate={createSetlist}
+        onOpen={(setlist) => {
+          setSelectedSetlist(setlist);
+          setConcertContext(null);
+          setScreen('setlistDetail');
+        }}
+      />
+    );
+  }
+
+  if (screen === 'setlistDetail' && selectedSetlist) {
+    return (
+      <SetlistDetail
+        setlist={selectedSetlist}
+        librarySongs={songs}
+        onBack={() => {
+          setConcertContext(null);
+          setScreen('setlists');
+        }}
+        onOpenSong={openConcertSong}
+        onChanged={loadSetlists}
+      />
+    );
+  }
+
   if (screen === 'playlists') {
     return (
       <PlaylistsScreen
@@ -1463,7 +1932,7 @@ export default function App() {
       <PlaylistDetail
         playlist={selectedPlaylist}
         onBack={() => setScreen('playlists')}
-        onOpenSong={(song) => { setSelected(song); setScreen('detail'); }}
+        onOpenSong={(song) => { setConcertContext(null); setSelected(song); setScreen('detail'); }}
       />
     );
   }
@@ -1485,6 +1954,9 @@ export default function App() {
             </TouchableOpacity>
             <TouchableOpacity style={styles.sideItem} onPress={() => setScreen('playlists')}>
               <Text style={styles.sideText}>☷  Playlists</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sideItem} onPress={() => setScreen('setlists')}>
+              <Text style={styles.sideText}>≡  Alinhamentos</Text>
             </TouchableOpacity>
             {['♬  Tabs', '▣  Ensaios', '★  Concertos', '♡  Favoritos'].map((item) => (
               <TouchableOpacity key={item} style={styles.sideItem}>
@@ -1528,7 +2000,7 @@ export default function App() {
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.list}
               renderItem={({ item }) => (
-                <TouchableOpacity style={styles.songRow} onPress={() => { setSelected(item); setScreen('detail'); }}>
+                <TouchableOpacity style={styles.songRow} onPress={() => { setConcertContext(null); setSelected(item); setScreen('detail'); }}>
                   <View style={styles.coverSmall}><SongCover song={item} /></View>
                   <View style={styles.songInfo}>
                     <Text style={styles.songTitle}>{item.title}</Text>
@@ -1550,6 +2022,9 @@ export default function App() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.bottomButton} onPress={() => setScreen('playlists')}>
                 <Text style={styles.bottomItem}>☷{'\n'}Playlists</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.bottomButton} onPress={() => setScreen('setlists')}>
+                <Text style={styles.bottomItem}>≡{'\n'}Alinhamentos</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.bottomButton}>
                 <Text style={styles.bottomItem}>♡{'\n'}Favoritos</Text>
@@ -1638,7 +2113,18 @@ const styles = StyleSheet.create({
   detailTitle: { color: COLORS.text, fontSize: 30, fontWeight: '900' },
   detailArtist: { color: '#a2b3ce', fontSize: 17, marginTop: 5 },
   meta: { color: COLORS.muted, marginTop: 6 },
-  actionRow: { flexDirection: 'row', gap: 8, marginTop: 18, flexWrap: 'wrap' },
+  concertNav: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#111827', borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 8, marginBottom: 18 },
+  concertNavButton: { minWidth: 88, borderWidth: 1, borderColor: COLORS.border, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 9, alignItems: 'center' },
+  concertNavButtonDisabled: { opacity: 0.3 },
+  concertNavButtonText: { color: COLORS.text, fontWeight: '800', fontSize: 12 },
+  concertNavCenter: { flex: 1, alignItems: 'center', minWidth: 0 },
+  concertNavName: { color: '#c6b0ff', fontWeight: '900', fontSize: 13, maxWidth: '100%' },
+  concertNavPosition: { color: COLORS.muted, marginTop: 2, fontSize: 11 },
+  externalLinksRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  youtubeLinkButton: { backgroundColor: '#7f1d1d', borderWidth: 1, borderColor: '#b91c1c', borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
+  externalLinkButton: { backgroundColor: COLORS.panel2, borderWidth: 1, borderColor: COLORS.border, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
+  externalLinkText: { color: COLORS.text, fontWeight: '800', fontSize: 12 },
+    actionRow: { flexDirection: 'row', gap: 8, marginTop: 18, flexWrap: 'wrap' },
   secondaryButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 13 },
   stageBar: { backgroundColor: COLORS.panel2, borderRadius: 13, padding: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 22, marginBottom: 16 },
   stageText: { color: '#a8b7cf', fontSize: 13 },
@@ -1728,7 +2214,24 @@ const styles = StyleSheet.create({
   addBlockButton: { borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.border, borderRadius: 10, paddingVertical: 13, alignItems: 'center', marginBottom: 12 },
   addBlockText: { color: COLORS.text, fontWeight: '800' },
 
-  createPlaylistRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  setlistIcon: { width: 46, height: 46, borderRadius: 12, marginRight: 12, backgroundColor: '#1b263b', alignItems: 'center', justifyContent: 'center' },
+  setlistIconText: { color: '#b6c9ef', fontSize: 26, fontWeight: '900' },
+  setlistIntroRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
+  setlistCountPill: { minWidth: 42, height: 42, paddingHorizontal: 10, borderRadius: 21, backgroundColor: '#2b1d48', alignItems: 'center', justifyContent: 'center' },
+  setlistCountText: { color: '#c9b2ff', fontWeight: '900', fontSize: 15 },
+  addSongsPanel: { borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#0d1320', borderRadius: 14, padding: 12, marginBottom: 14, maxHeight: 300 },
+  addSongsScroll: { maxHeight: 220 },
+  addSongRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#172033' },
+  setlistSongsList: { paddingBottom: 40 },
+  setlistSongRow: { minHeight: 70, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, backgroundColor: '#0d1320', paddingVertical: 8, paddingHorizontal: 8, marginBottom: 7 },
+  setlistSongRowDragging: { borderColor: COLORS.purple, backgroundColor: '#21163a', opacity: 0.92 },
+  dragHandle: { width: 38, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
+  dragHandleText: { color: '#b99cff', fontSize: 28, fontWeight: '900' },
+  setlistPosition: { width: 28, color: COLORS.muted, textAlign: 'center', fontWeight: '800' },
+  setlistSongMain: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
+  removeSetlistSongButton: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: '#5a2731', alignItems: 'center', justifyContent: 'center', marginLeft: 6 },
+  removeSetlistSongText: { color: '#ff7b88', fontSize: 23, lineHeight: 25 },
+    createPlaylistRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   playlistRow: { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#121a28' },
   playlistIcon: { width: 46, height: 46, borderRadius: 12, marginRight: 12, backgroundColor: '#2b1d48', alignItems: 'center', justifyContent: 'center' },
   playlistIconText: { color: '#c6a7ff', fontSize: 22 },
