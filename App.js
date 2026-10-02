@@ -121,8 +121,10 @@ function BassTabPanel({ song }) {
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
   const [savingKey, setSavingKey] = useState('');
-  const [showSource, setShowSource] = useState(true);
+  const [showSource, setShowSource] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [myTab, setMyTab] = useState(null);
+  const [principalTab, setPrincipalTab] = useState(null);
   const [savingContent, setSavingContent] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
 
@@ -193,6 +195,18 @@ function BassTabPanel({ song }) {
     setCustomTab(tab?.custom_tab || '');
   }
 
+  function hasStoredUserContent(tab) {
+    if (!tab) return false;
+    if (tab.editor_mode === 'text' && tab.custom_tab?.trim()) return true;
+    if (tab.custom_tab?.trim()) return true;
+    return Array.isArray(tab.sections)
+      && tab.sections.some((block) => block?.type === 'visual-block' || Array.isArray(block?.cells));
+  }
+
+  function isSongsterrTab(tab) {
+    return tab?.source === 'Songsterr' && Boolean(tab?.source_url);
+  }
+
   async function loadSavedTabs(preferredId = null) {
     setSavedLoading(true);
     setError('');
@@ -200,13 +214,22 @@ function BassTabPanel({ song }) {
       const data = await libraryGet('tabs', { songId: song.id, instrument: 'bass' });
       const tabs = data.tabs || [];
       setSavedTabs(tabs);
-      const chosen = tabs.find((item) => item.id === preferredId)
-        || tabs.find((item) => item.is_primary)
+
+      const principal = tabs.find((item) => isSongsterrTab(item) && item.is_primary)
+        || tabs.find((item) => isSongsterrTab(item))
+        || null;
+
+      const own = tabs.find((item) => hasStoredUserContent(item))
+        || tabs.find((item) => item.source === 'Manual')
+        || principal
+        || tabs.find((item) => item.id === preferredId)
         || tabs[0]
         || null;
-      setActiveTab(chosen);
-      hydrateEditor(chosen);
-      if (!chosen) setShowSource(false);
+
+      setPrincipalTab(principal);
+      setMyTab(own);
+      setActiveTab(own);
+      hydrateEditor(own);
     } catch (err) {
       setError(err?.message || 'Não foi possível carregar as tabs guardadas.');
     } finally {
@@ -217,7 +240,6 @@ function BassTabPanel({ song }) {
   async function searchBassTabs() {
     setSearching(true);
     setError('');
-    setSavedMessage('');
     try {
       const q = song.artist + ' ' + song.title;
       const response = await fetch(TAB_SEARCH_URL + '?q=' + encodeURIComponent(q), {
@@ -227,13 +249,25 @@ function BassTabPanel({ song }) {
         },
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || 'Não foi possível procurar tablaturas.');
-      setResults(data.results || []);
+      if (!response.ok) throw new Error(data?.error || 'Não foi possível localizar a versão principal.');
+
+      const firstResult = (data.results || [])[0];
+      const firstTrack = firstResult?.bassTracks?.[0];
+
+      if (firstResult && firstTrack) {
+        const saved = await libraryPost('save_tab_reference', {
+          songId: song.id,
+          instrument: 'bass',
+          result: firstResult,
+          track: firstTrack,
+        });
+        await loadSavedTabs(saved.tab?.id || null);
+      }
+
       setSearched(true);
     } catch (err) {
-      setResults([]);
       setSearched(true);
-      setError(err?.message || 'Erro ao procurar tablaturas de baixo.');
+      setError(err?.message || 'Não foi possível localizar a versão principal.');
     } finally {
       setSearching(false);
     }
@@ -323,6 +357,29 @@ function BassTabPanel({ song }) {
     setBlocks((prev) => [...prev, newBlock('Bloco ' + (prev.length + 1), stringCount)]);
   }
 
+  async function createOwnTab() {
+    setError('');
+    setSavedMessage('');
+    try {
+      let tab = myTab;
+      if (!tab) {
+        const data = await libraryPost('create_manual_tab', {
+          songId: song.id,
+          instrument: 'bass',
+        });
+        tab = data.tab;
+        setSavedTabs((prev) => prev.some((item) => item.id === tab.id) ? prev : [tab, ...prev]);
+        setMyTab(tab);
+      }
+      setActiveTab(tab);
+      hydrateEditor(tab);
+      setShowSource(false);
+      setEditing(true);
+    } catch (err) {
+      setError(err?.message || 'Não foi possível criar a tua tab.');
+    }
+  }
+
   async function saveOwnTab() {
     if (!activeTab) return;
     setSavingContent(true);
@@ -339,6 +396,7 @@ function BassTabPanel({ song }) {
         customTab,
       });
       setActiveTab(data.tab);
+      setMyTab(data.tab);
       setSavedTabs((prev) => prev.map((item) => item.id === data.tab.id ? data.tab : item));
       hydrateEditor(data.tab);
       setEditing(false);
@@ -398,341 +456,271 @@ function BassTabPanel({ song }) {
   }, [song.id]);
 
   useEffect(() => {
-    if (!savedLoading && savedTabs.length === 0 && !searched && !searching) {
+    const hasPrincipal = savedTabs.some((item) => isSongsterrTab(item));
+    if (!savedLoading && !hasPrincipal && !searched && !searching) {
       searchBassTabs();
     }
-  }, [savedLoading, savedTabs.length, searched, searching]);
+  }, [savedLoading, savedTabs, searched, searching]);
 
   if (savedLoading) {
     return (
       <View style={styles.feedbackBox}>
         <ActivityIndicator />
-        <Text style={styles.feedbackText}>A carregar tabs guardadas…</Text>
+        <Text style={styles.feedbackText}>A carregar a tab…</Text>
       </View>
     );
   }
 
+  const ownExists = hasStoredUserContent(myTab);
+
   return (
     <View>
-      <View style={styles.bassToolbar}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.emptyTitle}>Tab de baixo</Text>
-          <Text style={styles.emptyText}>
-            Guarda uma versão do Songsterr como referência e cria a tua versão visual dentro do Bonus Track.
-          </Text>
-        </View>
-        <TouchableOpacity style={styles.primarySmall} onPress={searchBassTabs} disabled={searching}>
-          <Text style={styles.primaryText}>{searching ? 'A procurar…' : '↻ Procurar versões'}</Text>
+      <View style={styles.modeSwitch}>
+        <TouchableOpacity
+          style={[styles.modeButton, !showSource && styles.modeButtonActive]}
+          onPress={() => { setShowSource(false); setEditing(false); }}
+        >
+          <Text style={[styles.modeButtonText, !showSource && styles.modeButtonTextActive]}>Minha tab</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeButton, showSource && styles.modeButtonActive]}
+          onPress={() => { setShowSource(true); setEditing(false); }}
+        >
+          <Text style={[styles.modeButtonText, showSource && styles.modeButtonTextActive]}>Versão principal</Text>
         </TouchableOpacity>
       </View>
 
       {error ? <Text style={styles.errorInline}>{error}</Text> : null}
       {savedMessage ? <Text style={styles.successInline}>{savedMessage}</Text> : null}
 
-      {savedTabs.length > 0 ? (
-        <View style={styles.savedTabsBlock}>
-          <Text style={styles.resultLabel}>VERSÕES GUARDADAS</Text>
-          {savedTabs.map((tab) => (
-            <TouchableOpacity
-              key={tab.id}
-              style={[styles.savedTabRow, activeTab?.id === tab.id && styles.savedTabRowActive]}
-              onPress={() => makePrimary(tab)}
-              disabled={savingKey === tab.id}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.songTitle}>
-                  {(tab.title || tab.source_track_name || 'Baixo') + (tab.is_primary ? ' · Principal' : '')}
-                </Text>
-                <Text style={styles.songArtist}>
-                  {(tab.source_artist || song.artist) + ' · ' + (tab.source_title || song.title)}
-                </Text>
-                <Text style={styles.songMeta}>
-                  {(tab.string_count || 4) + ' cordas' + (tab.tuning_label ? ' · ' + tab.tuning_label : '')}
-                </Text>
-              </View>
-              {savingKey === tab.id ? <ActivityIndicator /> : <Text style={styles.chevron}>›</Text>}
-            </TouchableOpacity>
-          ))}
-        </View>
-      ) : null}
-
-      {activeTab ? (
+      {showSource ? (
         <View style={styles.primaryTabCard}>
-          <View style={styles.bassResultHeader}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.songTitle}>{activeTab.title || activeTab.source_title || song.title}</Text>
-              <Text style={styles.songArtist}>
-                {(activeTab.source_artist || song.artist) + (activeTab.source_track_name ? ' · ' + activeTab.source_track_name : '')}
-              </Text>
-              {activeTab.tuning_label ? <Text style={styles.songMeta}>{'Afinação: ' + activeTab.tuning_label}</Text> : null}
-            </View>
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => activeTab.source_url && Linking.openURL(activeTab.source_url)}
-            >
-              <Text style={styles.secondaryButtonText}>Abrir fonte ↗</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.modeSwitch}>
-            <TouchableOpacity
-              style={[styles.modeButton, showSource && !editing && styles.modeButtonActive]}
-              onPress={() => { setShowSource(true); setEditing(false); }}
-            >
-              <Text style={[styles.modeButtonText, showSource && !editing && styles.modeButtonTextActive]}>Fonte</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modeButton, !showSource && !editing && styles.modeButtonActive]}
-              onPress={() => { setShowSource(false); setEditing(false); }}
-            >
-              <Text style={[styles.modeButtonText, !showSource && !editing && styles.modeButtonTextActive]}>Minha tab</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modeButton, editing && styles.modeButtonActive]}
-              onPress={() => { setShowSource(false); setEditing(true); hydrateEditor(activeTab); }}
-            >
-              <Text style={[styles.modeButtonText, editing && styles.modeButtonTextActive]}>Editar</Text>
-            </TouchableOpacity>
-          </View>
-
-          {showSource && !editing ? (
-            sourceUri(activeTab) ? (
-              <View style={styles.webViewFrame}>
-                <WebView
-                  source={{ uri: sourceUri(activeTab) }}
-                  style={styles.webView}
-                  startInLoadingState
-                  renderLoading={() => (
-                    <View style={styles.webViewLoading}>
-                      <ActivityIndicator />
-                      <Text style={styles.feedbackText}>A carregar a tab do Songsterr…</Text>
-                    </View>
-                  )}
-                  javaScriptEnabled
-                  domStorageEnabled
-                  sharedCookiesEnabled
-                  allowsInlineMediaPlayback
-                />
-              </View>
-            ) : (
-              <Text style={styles.emptyText}>Esta versão não tem um endereço de origem disponível.</Text>
-            )
-          ) : editing ? (
-            <View style={[styles.visualEditorShell, tablet && styles.visualEditorShellTablet]}>
-              <View style={[styles.editorSettingsCard, tablet && styles.editorSettingsCardTablet]}>
-                <Text style={styles.editorPanelTitle}>Configurações</Text>
-
-                <Text style={styles.formLabel}>Título</Text>
-                <TextInput
-                  value={tabTitle}
-                  onChangeText={setTabTitle}
-                  style={styles.formInput}
-                  placeholder="Nome da tab"
-                  placeholderTextColor={COLORS.muted}
-                />
-
-                <Text style={styles.formLabel}>Instrumento</Text>
-                <View style={styles.readonlyField}>
-                  <Text style={styles.readonlyFieldText}>🎸 Baixo</Text>
-                </View>
-
-                <Text style={styles.formLabel}>Número de cordas</Text>
-                <View style={styles.stringCountRow}>
-                  {[4, 5, 6].map((count) => (
-                    <TouchableOpacity
-                      key={count}
-                      style={[styles.stringCountButton, stringCount === count && styles.stringCountButtonActive]}
-                      onPress={() => resizeStrings(count)}
-                    >
-                      <Text style={[styles.stringCountText, stringCount === count && styles.stringCountTextActive]}>
-                        {count}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text style={styles.formLabel}>Música associada</Text>
-                <View style={styles.readonlyField}>
-                  <Text style={styles.readonlyFieldText}>{song.title + ' — ' + song.artist}</Text>
-                </View>
-
-                <View style={styles.publicRow}>
-                  <Text style={styles.formLabel}>Pública</Text>
-                  <TouchableOpacity
-                    style={[styles.switchTrack, isPublic && styles.switchTrackOn]}
-                    onPress={() => setIsPublic((value) => !value)}
-                  >
-                    <View style={[styles.switchThumb, isPublic && styles.switchThumbOn]} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.editorMain}>
-                <View style={styles.editorModeHeader}>
-                  <View style={styles.modeSwitch}>
-                    <TouchableOpacity
-                      style={[styles.modeButton, editorMode === 'visual' && styles.modeButtonActive]}
-                      onPress={() => setEditorMode('visual')}
-                    >
-                      <Text style={[styles.modeButtonText, editorMode === 'visual' && styles.modeButtonTextActive]}>⌘ Editor Visual</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.modeButton, editorMode === 'text' && styles.modeButtonActive]}
-                      onPress={() => setEditorMode('text')}
-                    >
-                      <Text style={[styles.modeButtonText, editorMode === 'text' && styles.modeButtonTextActive]}>Texto Livre</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <TouchableOpacity style={styles.primaryButton} onPress={saveOwnTab} disabled={savingContent}>
-                    {savingContent ? <ActivityIndicator /> : <Text style={styles.primaryText}>▣ Guardar</Text>}
-                  </TouchableOpacity>
-                </View>
-
-                {editorMode === 'visual' ? (
-                  <View>
-                    {blocks.map((block, blockIndex) => (
-                      <View key={block.id} style={styles.visualBlockCard}>
-                        <View style={styles.visualBlockHeader}>
-                          <TextInput
-                            value={block.name}
-                            onChangeText={(name) => updateBlockName(blockIndex, name)}
-                            style={styles.blockNameInput}
-                            placeholder={'Bloco ' + (blockIndex + 1)}
-                            placeholderTextColor={COLORS.muted}
-                          />
-                          <View style={styles.blockHeaderActions}>
-                            <TouchableOpacity onPress={() => clearBlock(blockIndex)} style={styles.clearBlockButton}>
-                              <Text style={styles.clearBlockText}>Limpar</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => removeBlock(blockIndex)} style={styles.removeBlockButton}>
-                              <Text style={styles.removeBlockText}>🗑 Remover bloco</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-
-                        {renderGrid(block, blockIndex, true)}
-                      </View>
-                    ))}
-
-                    <TouchableOpacity style={styles.addBlockButton} onPress={addBlock}>
-                      <Text style={styles.addBlockText}>＋ Adicionar bloco</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <View>
-                    <Text style={styles.formLabel}>Texto livre</Text>
-                    <TextInput
-                      value={customTab}
-                      onChangeText={setCustomTab}
-                      multiline
-                      textAlignVertical="top"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      placeholder="Escreve ou cola aqui a tua tab em formato livre."
-                      placeholderTextColor={COLORS.muted}
-                      style={[styles.tabEditorInput, styles.tabEditorLarge]}
-                    />
-                  </View>
-                )}
-              </View>
-            </View>
-          ) : (
-            <View>
-              {activeTab.editor_mode === 'text' && activeTab.custom_tab?.trim() ? (
-                <View style={styles.tabSectionCard}>
-                  <Text style={styles.tabSectionTitle}>Tab / notas</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <Text style={styles.asciiTabText} selectable>{activeTab.custom_tab}</Text>
-                  </ScrollView>
-                </View>
-              ) : (
-                <View>
-                  {(Array.isArray(activeTab.sections) ? activeTab.sections : [])
-                    .filter((block) => block?.type === 'visual-block' || Array.isArray(block?.cells))
-                    .map((block, blockIndex) => (
-                      <View key={block.id || String(blockIndex)} style={styles.visualBlockCard}>
-                        <Text style={styles.tabSectionTitle}>{block.name || ('Bloco ' + (blockIndex + 1))}</Text>
-                        {renderGrid({
-                          ...block,
-                          cells: Array.from({ length: activeTab.string_count || 4 }, (_, rowIndex) => {
-                            const existing = Array.isArray(block?.cells?.[rowIndex]) ? block.cells[rowIndex] : [];
-                            return Array.from({ length: GRID_COLUMNS }, (_, colIndex) => String(existing[colIndex] ?? ''));
-                          }),
-                        }, blockIndex, false)}
-                      </View>
-                    ))}
-
-                  {!Array.isArray(activeTab.sections) || !activeTab.sections.some((block) => Array.isArray(block?.cells)) ? (
-                    <View style={styles.feedbackBox}>
-                      <Text style={styles.emptyTitle}>Ainda não criaste a tua tab visual.</Text>
-                      <Text style={styles.feedbackText}>Carrega em “Editar” para adicionar blocos e posições.</Text>
-                    </View>
-                  ) : null}
-                </View>
-              )}
-            </View>
-          )}
-        </View>
-      ) : null}
-
-      {searched ? (
-        <View style={styles.searchVersionsBlock}>
-          <Text style={styles.resultLabel}>RESULTADOS SONGSTERR</Text>
           {searching ? (
             <View style={styles.feedbackBox}>
               <ActivityIndicator />
-              <Text style={styles.feedbackText}>A procurar versões com baixo…</Text>
+              <Text style={styles.feedbackText}>A localizar a versão principal…</Text>
             </View>
-          ) : results.length === 0 ? (
-            <View style={styles.feedbackBox}>
-              <Text style={styles.feedbackText}>Não encontrei uma versão com baixo.</Text>
+          ) : principalTab ? (
+            <View>
+              <Text style={styles.contentTitle}>Versão principal</Text>
+              <Text style={styles.detailArtist}>{principalTab.source_artist || song.artist}</Text>
+              <Text style={styles.meta}>
+                {(principalTab.source_title || song.title)
+                  + (principalTab.source_track_name ? ' · ' + principalTab.source_track_name : '')}
+              </Text>
+              {principalTab.tuning_label ? (
+                <Text style={styles.songMeta}>{'Afinação: ' + principalTab.tuning_label}</Text>
+              ) : null}
+
+              <TouchableOpacity
+                style={[styles.primaryButton, { marginTop: 16, alignSelf: 'flex-start' }]}
+                onPress={() => principalTab.source_url && Linking.openURL(principalTab.source_url)}
+              >
+                <Text style={styles.primaryText}>Abrir na fonte ↗</Text>
+              </TouchableOpacity>
             </View>
           ) : (
-            results.map((result) => (
-              <View key={String(result.songId)} style={styles.bassResultCard}>
-                <View style={styles.bassResultHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.songTitle}>{result.title}</Text>
-                    <Text style={styles.songArtist}>{result.artist}</Text>
-                  </View>
+            <View>
+              <Text style={styles.emptyTitle}>Sem versão principal disponível.</Text>
+              <Text style={styles.emptyText}>
+                Não encontrei automaticamente uma versão de baixo no Songsterr para esta música.
+              </Text>
+            </View>
+          )}
+        </View>
+      ) : editing ? (
+        <View>
+          <View style={styles.editorModeHeader}>
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                setEditing(false);
+                hydrateEditor(myTab);
+              }}
+            >
+              <Text style={styles.secondaryButtonText}>‹ Voltar à minha tab</Text>
+            </TouchableOpacity>
+            <Text style={styles.contentTitle}>Editar Tab</Text>
+          </View>
+
+          <View style={[styles.visualEditorShell, tablet && styles.visualEditorShellTablet]}>
+            <View style={[styles.editorSettingsCard, tablet && styles.editorSettingsCardTablet]}>
+              <Text style={styles.editorPanelTitle}>Configurações</Text>
+
+              <Text style={styles.formLabel}>Título</Text>
+              <TextInput
+                value={tabTitle}
+                onChangeText={setTabTitle}
+                style={styles.formInput}
+                placeholder="Nome da tab"
+                placeholderTextColor={COLORS.muted}
+              />
+
+              <Text style={styles.formLabel}>Instrumento</Text>
+              <View style={styles.readonlyField}>
+                <Text style={styles.readonlyFieldText}>🎸 Baixo</Text>
+              </View>
+
+              <Text style={styles.formLabel}>Número de cordas</Text>
+              <View style={styles.stringCountRow}>
+                {[4, 5, 6].map((count) => (
                   <TouchableOpacity
-                    style={styles.secondaryButton}
-                    onPress={() => Linking.openURL(result.songsterrUrl || result.searchUrl)}
+                    key={count}
+                    style={[styles.stringCountButton, stringCount === count && styles.stringCountButtonActive]}
+                    onPress={() => resizeStrings(count)}
                   >
-                    <Text style={styles.secondaryButtonText}>Pré-visualizar ↗</Text>
+                    <Text style={[styles.stringCountText, stringCount === count && styles.stringCountTextActive]}>
+                      {count}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.formLabel}>Música associada</Text>
+              <View style={styles.readonlyField}>
+                <Text style={styles.readonlyFieldText}>{song.title + ' — ' + song.artist}</Text>
+              </View>
+
+              <View style={styles.publicRow}>
+                <Text style={styles.formLabel}>Pública</Text>
+                <TouchableOpacity
+                  style={[styles.switchTrack, isPublic && styles.switchTrackOn]}
+                  onPress={() => setIsPublic((value) => !value)}
+                >
+                  <View style={[styles.switchThumb, isPublic && styles.switchThumbOn]} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.editorMain}>
+              <View style={styles.editorModeHeader}>
+                <View style={styles.modeSwitch}>
+                  <TouchableOpacity
+                    style={[styles.modeButton, editorMode === 'visual' && styles.modeButtonActive]}
+                    onPress={() => setEditorMode('visual')}
+                  >
+                    <Text style={[styles.modeButtonText, editorMode === 'visual' && styles.modeButtonTextActive]}>⌘ Editor Visual</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modeButton, editorMode === 'text' && styles.modeButtonActive]}
+                    onPress={() => setEditorMode('text')}
+                  >
+                    <Text style={[styles.modeButtonText, editorMode === 'text' && styles.modeButtonTextActive]}>Texto Livre</Text>
                   </TouchableOpacity>
                 </View>
 
-                {result.bassTracks.map((track) => {
-                  const key = String(result.songId) + '-' + String(track.index);
-                  return (
-                    <View key={key} style={styles.bassTrackRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.bassTrackName}>{track.name || track.instrument}</Text>
-                        <Text style={styles.bassTrackMeta}>
-                          {track.instrument}
-                          {track.tuningLabel ? ' · ' + track.tuningLabel : ''}
-                          {track.views ? ' · ' + track.views.toLocaleString() + ' visualizações' : ''}
-                        </Text>
-                      </View>
-                      <TouchableOpacity
-                        style={styles.primarySmall}
-                        onPress={() => chooseVersion(result, track)}
-                        disabled={Boolean(savingKey)}
-                      >
-                        {savingKey === key
-                          ? <ActivityIndicator />
-                          : <Text style={styles.primaryText}>Usar esta versão</Text>}
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })}
+                <TouchableOpacity style={styles.primaryButton} onPress={saveOwnTab} disabled={savingContent}>
+                  {savingContent ? <ActivityIndicator /> : <Text style={styles.primaryText}>▣ Guardar</Text>}
+                </TouchableOpacity>
               </View>
-            ))
+
+              {editorMode === 'visual' ? (
+                <View>
+                  {blocks.map((block, blockIndex) => (
+                    <View key={block.id} style={styles.visualBlockCard}>
+                      <View style={styles.visualBlockHeader}>
+                        <TextInput
+                          value={block.name}
+                          onChangeText={(name) => updateBlockName(blockIndex, name)}
+                          style={styles.blockNameInput}
+                          placeholder={'Bloco ' + (blockIndex + 1)}
+                          placeholderTextColor={COLORS.muted}
+                        />
+                        <View style={styles.blockHeaderActions}>
+                          <TouchableOpacity onPress={() => clearBlock(blockIndex)} style={styles.clearBlockButton}>
+                            <Text style={styles.clearBlockText}>Limpar</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => removeBlock(blockIndex)} style={styles.removeBlockButton}>
+                            <Text style={styles.removeBlockText}>🗑 Remover bloco</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      {renderGrid(block, blockIndex, true)}
+                    </View>
+                  ))}
+
+                  <TouchableOpacity style={styles.addBlockButton} onPress={addBlock}>
+                    <Text style={styles.addBlockText}>＋ Adicionar bloco</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View>
+                  <Text style={styles.formLabel}>Texto livre</Text>
+                  <TextInput
+                    value={customTab}
+                    onChangeText={setCustomTab}
+                    multiline
+                    textAlignVertical="top"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholder="Escreve ou cola aqui a tua tab em formato livre."
+                    placeholderTextColor={COLORS.muted}
+                    style={[styles.tabEditorInput, styles.tabEditorLarge]}
+                  />
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      ) : ownExists ? (
+        <View>
+          <View style={styles.bassToolbar}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.contentTitle}>{myTab?.title || 'Minha tab'}</Text>
+              <Text style={styles.contentSub}>
+                {(myTab?.string_count || 4) + ' cordas'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.primarySmall}
+              onPress={() => {
+                setActiveTab(myTab);
+                hydrateEditor(myTab);
+                setEditing(true);
+              }}
+            >
+              <Text style={styles.primaryText}>✎ Editar</Text>
+            </TouchableOpacity>
+          </View>
+
+          {myTab?.editor_mode === 'text' && myTab?.custom_tab?.trim() ? (
+            <View style={styles.tabSectionCard}>
+              <Text style={styles.tabSectionTitle}>Tab / notas</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <Text style={styles.asciiTabText} selectable>{myTab.custom_tab}</Text>
+              </ScrollView>
+            </View>
+          ) : (
+            <View>
+              {(Array.isArray(myTab?.sections) ? myTab.sections : [])
+                .filter((block) => block?.type === 'visual-block' || Array.isArray(block?.cells))
+                .map((block, blockIndex) => (
+                  <View key={block.id || String(blockIndex)} style={styles.visualBlockCard}>
+                    <Text style={styles.tabSectionTitle}>{block.name || ('Bloco ' + (blockIndex + 1))}</Text>
+                    {renderGrid({
+                      ...block,
+                      cells: Array.from({ length: myTab?.string_count || 4 }, (_, rowIndex) => {
+                        const existing = Array.isArray(block?.cells?.[rowIndex]) ? block.cells[rowIndex] : [];
+                        return Array.from({ length: GRID_COLUMNS }, (_, colIndex) => String(existing[colIndex] ?? ''));
+                      }),
+                    }, blockIndex, false)}
+                  </View>
+                ))}
+            </View>
           )}
         </View>
-      ) : null}
+      ) : (
+        <View style={styles.feedbackBox}>
+          <Text style={styles.emptyTitle}>Ainda não tens uma tab própria.</Text>
+          <Text style={styles.feedbackText}>
+            Cria a tua tab de baixo e usa o editor visual, blocos, número de cordas e texto livre.
+          </Text>
+          <TouchableOpacity style={styles.primaryButton} onPress={createOwnTab}>
+            <Text style={styles.primaryText}>＋ Criar minha tab</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
