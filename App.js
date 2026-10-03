@@ -15,6 +15,7 @@ import {
   Linking,
   PanResponder,
   Animated,
+  Modal,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -167,6 +168,138 @@ function TabButton({ label, active, onPress }) {
 
 
 
+
+function FullscreenStage({
+  visible,
+  title,
+  subtitle,
+  onClose,
+  fontSize = 26,
+  onFontSizeChange,
+  autoScroll,
+  onAutoScrollChange,
+  speed = 1,
+  onSpeedChange,
+  children,
+}) {
+  const scrollRef = useRef(null);
+  const scrollY = useRef(0);
+  const contentHeight = useRef(0);
+  const viewportHeight = useRef(0);
+
+  useEffect(() => {
+    if (!visible) {
+      scrollY.current = 0;
+      return undefined;
+    }
+
+    if (!autoScroll) return undefined;
+
+    const timer = setInterval(() => {
+      const maxY = Math.max(0, contentHeight.current - viewportHeight.current);
+      if (maxY <= 0) return;
+
+      const next = Math.min(maxY, scrollY.current + Math.max(0.5, Number(speed || 1)));
+      scrollY.current = next;
+      scrollRef.current?.scrollTo?.({ y: next, animated: false });
+
+      if (next >= maxY) {
+        onAutoScrollChange?.(false);
+      }
+    }, 50);
+
+    return () => clearInterval(timer);
+  }, [visible, autoScroll, speed, onAutoScrollChange]);
+
+  const speeds = [0.5, 1, 1.5, 2];
+
+  function cycleSpeed() {
+    const currentIndex = speeds.findIndex((value) => value === speed);
+    const next = speeds[(currentIndex + 1) % speeds.length] || 1;
+    onSpeedChange?.(next);
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="fade"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
+      <SafeAreaView style={styles.stageSafe}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.stageHeader}>
+          <TouchableOpacity style={styles.stageCloseButton} onPress={onClose}>
+            <Text style={styles.stageCloseText}>‹ Sair</Text>
+          </TouchableOpacity>
+
+          <View style={styles.stageHeaderCenter}>
+            <Text style={styles.stageTitle} numberOfLines={1}>{title}</Text>
+            {subtitle ? <Text style={styles.stageSubtitle} numberOfLines={1}>{subtitle}</Text> : null}
+          </View>
+
+          <View style={styles.stageHeaderSpacer} />
+        </View>
+
+        <View style={styles.stageControls}>
+          <TouchableOpacity
+            style={[styles.stageControlButton, autoScroll && styles.stageControlButtonActive]}
+            onPress={() => onAutoScrollChange?.(!autoScroll)}
+          >
+            <Text style={styles.stageControlText}>{autoScroll ? '❚❚ Pausar' : '▶ Auto scroll'}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.stageControlButton} onPress={cycleSpeed}>
+            <Text style={styles.stageControlText}>{speed}x</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.stageControlButton}
+            onPress={() => onFontSizeChange?.(Math.max(16, fontSize - 2))}
+          >
+            <Text style={styles.stageControlText}>A−</Text>
+          </TouchableOpacity>
+
+          <View style={styles.stageFontPill}>
+            <Text style={styles.stageFontText}>{fontSize}px</Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.stageControlButton}
+            onPress={() => onFontSizeChange?.(Math.min(44, fontSize + 2))}
+          >
+            <Text style={styles.stageControlText}>A＋</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.stageControlButton}
+            onPress={() => {
+              scrollY.current = 0;
+              scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+            }}
+          >
+            <Text style={styles.stageControlText}>↑ Início</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          ref={scrollRef}
+          style={styles.stageScroll}
+          contentContainerStyle={styles.stageScrollContent}
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={(_, height) => { contentHeight.current = height; }}
+          onLayout={(event) => { viewportHeight.current = event.nativeEvent.layout.height; }}
+          onScroll={(event) => { scrollY.current = event.nativeEvent.contentOffset.y; }}
+          scrollEventThrottle={16}
+        >
+          {children}
+          <View style={styles.stageBottomSpace} />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 const INSTRUMENT_TAB_CONFIG = {
   bass: {
     key: 'bass',
@@ -244,6 +377,10 @@ function InstrumentTabPanel({ song, instrument }) {
   const [principalTab, setPrincipalTab] = useState(null);
   const [savingContent, setSavingContent] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
+  const [stageVisible, setStageVisible] = useState(false);
+  const [stageFontSize, setStageFontSize] = useState(26);
+  const [stageAutoScroll, setStageAutoScroll] = useState(false);
+  const [stageSpeed, setStageSpeed] = useState(1);
 
   const [tabTitle, setTabTitle] = useState('');
   const [rowCount, setRowCount] = useState(config.defaultRows);
@@ -563,6 +700,61 @@ function InstrumentTabPanel({ song, instrument }) {
     );
   }
 
+
+  function renderStageGrid(block, blockIndex) {
+    const count = config.rowOptions.includes(Number(myTab?.string_count))
+      ? Number(myTab.string_count)
+      : config.defaultRows;
+    const labels = rowLabels(count, principalTab?.tuning_label || myTab?.tuning_label);
+    const cellWidth = Math.max(48, stageFontSize + 22);
+    const cellHeight = Math.max(42, stageFontSize + 16);
+
+    return (
+      <View key={block.id || String(blockIndex)} style={styles.stageTabBlock}>
+        <Text style={[styles.stageTabBlockTitle, { fontSize: Math.max(20, stageFontSize - 2) }]}>
+          {block.name || ('Bloco ' + (blockIndex + 1))}
+        </Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View>
+            {Array.from({ length: count }, (_, rowIndex) => (
+              <View key={'stage-row-' + rowIndex} style={styles.stageGridRow}>
+                <Text style={[
+                  styles.stageGridLabel,
+                  config.cellMode !== 'number' && styles.stageGridLabelWide,
+                  { fontSize: Math.max(16, stageFontSize - 6) },
+                ]}>
+                  {labels[rowIndex] || ''}
+                </Text>
+                <Text style={[styles.stageGridDivider, { fontSize: stageFontSize }]} >|</Text>
+                {Array.from({ length: GRID_COLUMNS }, (_, colIndex) => {
+                  const sourceRow = Array.isArray(block?.cells?.[rowIndex]) ? block.cells[rowIndex] : [];
+                  const value = String(sourceRow[colIndex] ?? '');
+                  return (
+                    <View
+                      key={'stage-cell-' + rowIndex + '-' + colIndex}
+                      style={[
+                        styles.stageGridCell,
+                        value ? styles.stageGridCellFilled : null,
+                        { width: cellWidth, height: cellHeight },
+                      ]}
+                    >
+                      <Text style={[
+                        value ? styles.stageGridCellTextFilled : styles.stageGridCellTextEmpty,
+                        { fontSize: stageFontSize },
+                      ]}>
+                        {value || '–'}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
   useEffect(() => {
     loadSavedTabs();
   }, [song.id, config.key]);
@@ -795,16 +987,27 @@ function InstrumentTabPanel({ song, instrument }) {
                 {config.rowCountLabel + ': ' + (myTab?.string_count || config.defaultRows)}
               </Text>
             </View>
-            <TouchableOpacity
-              style={styles.primarySmall}
-              onPress={() => {
-                setActiveTab(myTab);
-                hydrateEditor(myTab);
-                setEditing(true);
-              }}
-            >
-              <Text style={styles.primaryText}>✎ Editar</Text>
-            </TouchableOpacity>
+            <View style={styles.tabActionRow}>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => {
+                  setStageAutoScroll(false);
+                  setStageVisible(true);
+                }}
+              >
+                <Text style={styles.secondaryButtonText}>⛶ Fullscreen</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.primarySmall}
+                onPress={() => {
+                  setActiveTab(myTab);
+                  hydrateEditor(myTab);
+                  setEditing(true);
+                }}
+              >
+                <Text style={styles.primaryText}>✎ Editar</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {myTab?.editor_mode === 'text' && myTab?.custom_tab?.trim() ? (
@@ -875,6 +1078,34 @@ function InstrumentTabPanel({ song, instrument }) {
           </TouchableOpacity>
         </View>
       )}
+
+      <FullscreenStage
+        visible={stageVisible}
+        title={myTab?.title || (song.title + ' · ' + config.label)}
+        subtitle={song.artist + ' · ' + config.label}
+        onClose={() => {
+          setStageVisible(false);
+          setStageAutoScroll(false);
+        }}
+        fontSize={stageFontSize}
+        onFontSizeChange={setStageFontSize}
+        autoScroll={stageAutoScroll}
+        onAutoScrollChange={setStageAutoScroll}
+        speed={stageSpeed}
+        onSpeedChange={setStageSpeed}
+      >
+        {myTab?.editor_mode === 'text' && myTab?.custom_tab?.trim() ? (
+          <Text style={[styles.stageFreeText, { fontSize: stageFontSize, lineHeight: Math.round(stageFontSize * 1.45) }]}>
+            {myTab.custom_tab}
+          </Text>
+        ) : (
+          <View>
+            {(Array.isArray(myTab?.sections) ? myTab.sections : [])
+              .filter((block) => block?.type === 'visual-block' || Array.isArray(block?.cells))
+              .map((block, blockIndex) => renderStageGrid(block, blockIndex))}
+          </View>
+        )}
+      </FullscreenStage>
     </View>
   );
 }
@@ -883,6 +1114,10 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate, setlistCon
   const [tab, setTab] = useState('Letra');
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsError, setLyricsError] = useState('');
+  const [lyricsFontSize, setLyricsFontSize] = useState(26);
+  const [lyricsStageVisible, setLyricsStageVisible] = useState(false);
+  const [lyricsAutoScroll, setLyricsAutoScroll] = useState(false);
+  const [lyricsSpeed, setLyricsSpeed] = useState(1);
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
 
@@ -973,12 +1208,43 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate, setlistCon
           </View>
         </View>
 
-        <View style={styles.stageBar}>
-          <Text style={styles.stageText}>▶ Scroll automático</Text>
-          <Text style={styles.stageText}>1x</Text>
-          <Text style={styles.stageText}>Texto  26px</Text>
-          <Text style={styles.stageText}>⛶ Modo palco</Text>
-        </View>
+        {tab === 'Letra' && song.lyrics ? (
+          <View style={styles.stageBar}>
+            <TouchableOpacity
+              style={styles.stageBarButton}
+              onPress={() => {
+                setLyricsAutoScroll(true);
+                setLyricsStageVisible(true);
+              }}
+            >
+              <Text style={styles.stageText}>▶ Scroll automático</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.stageBarButton}
+              onPress={() => setLyricsFontSize((value) => Math.max(16, value - 2))}
+            >
+              <Text style={styles.stageText}>A−</Text>
+            </TouchableOpacity>
+            <View style={styles.stageBarPill}>
+              <Text style={styles.stageText}>{lyricsFontSize}px</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.stageBarButton}
+              onPress={() => setLyricsFontSize((value) => Math.min(44, value + 2))}
+            >
+              <Text style={styles.stageText}>A＋</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.stageBarButton}
+              onPress={() => {
+                setLyricsAutoScroll(false);
+                setLyricsStageVisible(true);
+              }}
+            >
+              <Text style={styles.stageText}>⛶ Fullscreen</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
           {['Letra', 'Guitarra', 'Baixo', 'Bateria', 'Teclas', 'Notas'].map((item) => (
@@ -1014,7 +1280,12 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate, setlistCon
                 <Text style={styles.emptyText}>A fonte de letras identificou esta gravação como instrumental.</Text>
               </View>
             ) : song.lyrics ? (
-              <Text style={styles.lyricsText} selectable>{song.lyrics}</Text>
+              <Text
+                style={[styles.lyricsText, { fontSize: lyricsFontSize, lineHeight: Math.round(lyricsFontSize * 1.5) }]}
+                selectable
+              >
+                {song.lyrics}
+              </Text>
             ) : (
               <View>
                 <Text style={styles.emptyTitle}>Ainda não encontrei a letra automaticamente.</Text>
@@ -1045,6 +1316,26 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate, setlistCon
           )}
         </View>
       </ScrollView>
+
+      <FullscreenStage
+        visible={lyricsStageVisible}
+        title={song.title}
+        subtitle={song.artist + ' · Letra'}
+        onClose={() => {
+          setLyricsStageVisible(false);
+          setLyricsAutoScroll(false);
+        }}
+        fontSize={lyricsFontSize}
+        onFontSizeChange={setLyricsFontSize}
+        autoScroll={lyricsAutoScroll}
+        onAutoScrollChange={setLyricsAutoScroll}
+        speed={lyricsSpeed}
+        onSpeedChange={setLyricsSpeed}
+      >
+        <Text style={[styles.stageLyricsText, { fontSize: lyricsFontSize, lineHeight: Math.round(lyricsFontSize * 1.5) }]}>
+          {song.lyrics || ''}
+        </Text>
+      </FullscreenStage>
     </SafeAreaView>
   );
 }
@@ -2292,7 +2583,39 @@ const styles = StyleSheet.create({
   externalLinkText: { color: COLORS.text, fontWeight: '800', fontSize: 12 },
     actionRow: { flexDirection: 'row', gap: 8, marginTop: 18, flexWrap: 'wrap' },
   secondaryButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 13 },
-  stageBar: { backgroundColor: COLORS.panel2, borderRadius: 13, padding: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 22, marginBottom: 16 },
+  stageSafe: { flex: 1, backgroundColor: '#05070c' },
+  stageHeader: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#1d2535' },
+  stageCloseButton: { minWidth: 62, paddingVertical: 10, paddingHorizontal: 8 },
+  stageCloseText: { color: '#c8b7ff', fontSize: 15, fontWeight: '900' },
+  stageHeaderCenter: { flex: 1, alignItems: 'center', minWidth: 0 },
+  stageHeaderSpacer: { width: 62 },
+  stageTitle: { color: COLORS.text, fontSize: 17, fontWeight: '900', maxWidth: '100%' },
+  stageSubtitle: { color: COLORS.muted, fontSize: 11, marginTop: 2, maxWidth: '100%' },
+  stageControls: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1d2535', backgroundColor: '#090d16' },
+  stageControlButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 9, paddingHorizontal: 11, paddingVertical: 8, backgroundColor: '#111725' },
+  stageControlButtonActive: { backgroundColor: COLORS.purple2, borderColor: COLORS.purple },
+  stageControlText: { color: COLORS.text, fontWeight: '800', fontSize: 12 },
+  stageFontPill: { minWidth: 58, borderRadius: 9, backgroundColor: '#1d2637', paddingHorizontal: 10, paddingVertical: 8, alignItems: 'center' },
+  stageFontText: { color: '#d9c9ff', fontWeight: '900', fontSize: 12 },
+  stageScroll: { flex: 1 },
+  stageScrollContent: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 100, maxWidth: 1200, width: '100%', alignSelf: 'center' },
+  stageBottomSpace: { height: 220 },
+  stageLyricsText: { color: '#ffffff', fontWeight: '500', letterSpacing: 0.15 },
+  stageFreeText: { color: '#ffffff', fontFamily: 'monospace' },
+  stageTabBlock: { marginBottom: 30, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#1d2535' },
+  stageTabBlockTitle: { color: '#c8b7ff', fontWeight: '900', marginBottom: 14 },
+  stageGridRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 },
+  stageGridLabel: { width: 34, color: '#b77cff', fontWeight: '900', textAlign: 'center', fontFamily: 'monospace' },
+  stageGridLabelWide: { width: 66 },
+  stageGridDivider: { color: '#7f8ba3', width: 18, textAlign: 'center', fontFamily: 'monospace' },
+  stageGridCell: { marginRight: 5, borderWidth: 1, borderColor: '#202a3d', borderRadius: 7, backgroundColor: '#0f1522', alignItems: 'center', justifyContent: 'center' },
+  stageGridCellFilled: { borderColor: '#7850c7', backgroundColor: '#291b49' },
+  stageGridCellTextFilled: { color: '#ffffff', fontFamily: 'monospace', fontWeight: '900' },
+  stageGridCellTextEmpty: { color: '#47536a', fontFamily: 'monospace' },
+  tabActionRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' },
+  stageBarButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
+  stageBarPill: { backgroundColor: '#202838', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
+    stageBar: { backgroundColor: COLORS.panel2, borderRadius: 13, padding: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 22, marginBottom: 16 },
   stageText: { color: '#a8b7cf', fontSize: 13 },
   tabs: { gap: 8, paddingBottom: 14 },
   tabButton: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.panel },
