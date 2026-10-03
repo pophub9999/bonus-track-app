@@ -224,6 +224,7 @@ function FullscreenStage({
       visible={visible}
       animationType="fade"
       presentationStyle="fullScreen"
+      supportedOrientations={['portrait', 'portrait-upside-down', 'landscape', 'landscape-left', 'landscape-right']}
       onRequestClose={onClose}
     >
       <SafeAreaView style={styles.stageSafe}>
@@ -989,6 +990,30 @@ function InstrumentTabPanel({ song, instrument }) {
             </View>
             <View style={styles.tabActionRow}>
               <TouchableOpacity
+                style={styles.stageBarButton}
+                onPress={() => setStageFontSize((value) => Math.max(16, value - 2))}
+              >
+                <Text style={styles.stageText}>A−</Text>
+              </TouchableOpacity>
+              <View style={styles.stageBarPill}>
+                <Text style={styles.stageText}>{stageFontSize}px</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.stageBarButton}
+                onPress={() => setStageFontSize((value) => Math.min(44, value + 2))}
+              >
+                <Text style={styles.stageText}>A＋</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.stageBarButton}
+                onPress={() => {
+                  setStageAutoScroll(true);
+                  setStageVisible(true);
+                }}
+              >
+                <Text style={styles.stageText}>▶ Auto scroll</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={styles.secondaryButton}
                 onPress={() => {
                   setStageAutoScroll(false);
@@ -1014,7 +1039,12 @@ function InstrumentTabPanel({ song, instrument }) {
             <View style={styles.tabSectionCard}>
               <Text style={styles.tabSectionTitle}>Tab / notas</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <Text style={styles.asciiTabText} selectable>{myTab.custom_tab}</Text>
+                <Text
+                  style={[styles.asciiTabText, { fontSize: stageFontSize, lineHeight: Math.round(stageFontSize * 1.4) }]}
+                  selectable
+                >
+                  {myTab.custom_tab}
+                </Text>
               </ScrollView>
             </View>
           ) : (
@@ -1043,15 +1073,38 @@ function InstrumentTabPanel({ song, instrument }) {
                             <View>
                               {Array.from({ length: count }, (_, rowIndex) => (
                                 <View key={'read-row-' + rowIndex} style={styles.visualGridRow}>
-                                  <Text style={[styles.stringLabel, config.cellMode !== 'number' && styles.instrumentRowLabel]}>
+                                  <Text
+                                    style={[
+                                      styles.stringLabel,
+                                      config.cellMode !== 'number' && styles.instrumentRowLabel,
+                                      { fontSize: Math.max(12, stageFontSize - 8) },
+                                    ]}
+                                  >
                                     {labels[rowIndex] || ''}
                                   </Text>
-                                  <Text style={styles.stringDivider}>|</Text>
+                                  <Text style={[styles.stringDivider, { fontSize: Math.max(14, stageFontSize - 6) }]}>|</Text>
                                   {Array.from({ length: GRID_COLUMNS }, (_, colIndex) => {
                                     const value = normalized.cells?.[rowIndex]?.[colIndex] || '';
+                                    const cellWidth = Math.max(config.cellMode === 'text' ? 58 : 42, stageFontSize + (config.cellMode === 'text' ? 30 : 18));
+                                    const cellHeight = Math.max(36, stageFontSize + 12);
                                     return (
-                                      <View key={'read-cell-' + rowIndex + '-' + colIndex} style={[styles.fretCellView, value ? styles.fretCellFilled : null, config.cellMode === 'text' && styles.noteCell]}>
-                                        <Text style={value ? styles.fretCellTextFilled : styles.fretCellTextEmpty}>{value || '–'}</Text>
+                                      <View
+                                        key={'read-cell-' + rowIndex + '-' + colIndex}
+                                        style={[
+                                          styles.fretCellView,
+                                          value ? styles.fretCellFilled : null,
+                                          config.cellMode === 'text' && styles.noteCell,
+                                          { width: cellWidth, height: cellHeight },
+                                        ]}
+                                      >
+                                        <Text
+                                          style={[
+                                            value ? styles.fretCellTextFilled : styles.fretCellTextEmpty,
+                                            { fontSize: Math.max(14, stageFontSize - 4) },
+                                          ]}
+                                        >
+                                          {value || '–'}
+                                        </Text>
                                       </View>
                                     );
                                   })}
@@ -2612,7 +2665,7 @@ const styles = StyleSheet.create({
   stageGridCellFilled: { borderColor: '#7850c7', backgroundColor: '#291b49' },
   stageGridCellTextFilled: { color: '#ffffff', fontFamily: 'monospace', fontWeight: '900' },
   stageGridCellTextEmpty: { color: '#47536a', fontFamily: 'monospace' },
-  tabActionRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' },
+  tabActionRow: { flexDirection: 'row', gap: 7, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end' },
   stageBarButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
   stageBarPill: { backgroundColor: '#202838', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
     stageBar: { backgroundColor: COLORS.panel2, borderRadius: 13, padding: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 22, marginBottom: 16 },
