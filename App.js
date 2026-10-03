@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Linking,
   PanResponder,
+  Animated,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -165,19 +166,78 @@ function TabButton({ label, active, onPress }) {
 
 
 
-function BassTabPanel({ song }) {
+
+const INSTRUMENT_TAB_CONFIG = {
+  bass: {
+    key: 'bass',
+    label: 'Baixo',
+    icon: '🎸',
+    defaultRows: 4,
+    rowOptions: [4, 5, 6],
+    rowCountLabel: 'Número de cordas',
+    cellMode: 'number',
+    defaultLabels: {
+      4: ['G', 'D', 'A', 'E'],
+      5: ['G', 'D', 'A', 'E', 'B'],
+      6: ['C', 'G', 'D', 'A', 'E', 'B'],
+    },
+  },
+  guitar: {
+    key: 'guitar',
+    label: 'Guitarra',
+    icon: '🎸',
+    defaultRows: 6,
+    rowOptions: [6, 7, 8],
+    rowCountLabel: 'Número de cordas',
+    cellMode: 'number',
+    defaultLabels: {
+      6: ['e', 'B', 'G', 'D', 'A', 'E'],
+      7: ['e', 'B', 'G', 'D', 'A', 'E', 'B'],
+      8: ['e', 'B', 'G', 'D', 'A', 'E', 'B', 'F#'],
+    },
+  },
+  drums: {
+    key: 'drums',
+    label: 'Bateria',
+    icon: '🥁',
+    defaultRows: 8,
+    rowOptions: [6, 8, 10],
+    rowCountLabel: 'Peças / linhas',
+    cellMode: 'drum',
+    defaultLabels: {
+      6: ['HH', 'Crash', 'Ride', 'Snare', 'Tom', 'Kick'],
+      8: ['HH', 'Crash', 'Ride', 'T1', 'T2', 'FT', 'Snare', 'Kick'],
+      10: ['HH', 'Crash', 'Ride', 'China', 'T1', 'T2', 'T3', 'FT', 'Snare', 'Kick'],
+    },
+    drumValues: ['', 'x', 'o', 'g', 'f'],
+  },
+  keys: {
+    key: 'keys',
+    label: 'Teclas',
+    icon: '🎹',
+    defaultRows: 2,
+    rowOptions: [2, 3],
+    rowCountLabel: 'Linhas',
+    cellMode: 'text',
+    defaultLabels: {
+      2: ['MD', 'ME'],
+      3: ['Acordes', 'MD', 'ME'],
+    },
+  },
+};
+
+function InstrumentTabPanel({ song, instrument }) {
   const GRID_COLUMNS = 18;
+  const config = INSTRUMENT_TAB_CONFIG[instrument] || INSTRUMENT_TAB_CONFIG.bass;
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
 
   const [savedTabs, setSavedTabs] = useState([]);
   const [activeTab, setActiveTab] = useState(null);
   const [savedLoading, setSavedLoading] = useState(true);
-  const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
-  const [savingKey, setSavingKey] = useState('');
   const [showSource, setShowSource] = useState(false);
   const [editing, setEditing] = useState(false);
   const [myTab, setMyTab] = useState(null);
@@ -186,7 +246,7 @@ function BassTabPanel({ song }) {
   const [savedMessage, setSavedMessage] = useState('');
 
   const [tabTitle, setTabTitle] = useState('');
-  const [stringCount, setStringCount] = useState(4);
+  const [rowCount, setRowCount] = useState(config.defaultRows);
   const [editorMode, setEditorMode] = useState('visual');
   const [isPublic, setIsPublic] = useState(false);
   const [blocks, setBlocks] = useState([]);
@@ -205,26 +265,22 @@ function BassTabPanel({ song }) {
     };
   }
 
-  function stringLabels(count, tuningLabel) {
-    if (tuningLabel) {
+  function rowLabels(count, tuningLabel) {
+    if ((instrument === 'bass' || instrument === 'guitar') && tuningLabel) {
       const parsed = tuningLabel
         .split('·')
         .map((item) => item.trim().replace(/[0-9]/g, ''))
         .filter(Boolean);
       if (parsed.length === count) return parsed.reverse();
     }
-    if (count === 5) return ['G', 'D', 'A', 'E', 'B'];
-    if (count === 6) return ['C', 'G', 'D', 'A', 'E', 'B'];
-    return ['G', 'D', 'A', 'E'];
+    return config.defaultLabels[count] || Array.from({ length: count }, (_, index) => String(index + 1));
   }
 
   function normalizeBlocks(tab, count) {
     const incoming = Array.isArray(tab?.sections) ? tab.sections : [];
     const visual = incoming.filter((section) => section?.type === 'visual-block' || Array.isArray(section?.cells));
 
-    if (!visual.length) {
-      return [newBlock('Bloco 1', count)];
-    }
+    if (!visual.length) return [newBlock('Bloco 1', count)];
 
     return visual.map((block, index) => {
       const rows = Array.from({ length: count }, (_, rowIndex) => {
@@ -242,10 +298,11 @@ function BassTabPanel({ song }) {
   }
 
   function hydrateEditor(tab) {
-    const count = Number(tab?.string_count || 4);
-    const safeCount = count >= 4 && count <= 6 ? count : 4;
-    setTabTitle(tab?.title || ((song.title || 'Tab') + ' - Baixo'));
-    setStringCount(safeCount);
+    const allowed = config.rowOptions;
+    const stored = Number(tab?.string_count || config.defaultRows);
+    const safeCount = allowed.includes(stored) ? stored : config.defaultRows;
+    setTabTitle(tab?.title || ((song.title || 'Tab') + ' - ' + config.label));
+    setRowCount(safeCount);
     setEditorMode(tab?.editor_mode === 'text' ? 'text' : 'visual');
     setIsPublic(Boolean(tab?.is_public));
     setBlocks(normalizeBlocks(tab, safeCount));
@@ -254,6 +311,7 @@ function BassTabPanel({ song }) {
 
   function hasStoredUserContent(tab) {
     if (!tab) return false;
+    if (tab.source === 'Manual') return true;
     if (tab.editor_mode === 'text' && tab.custom_tab?.trim()) return true;
     if (tab.custom_tab?.trim()) return true;
     return Array.isArray(tab.sections)
@@ -268,7 +326,7 @@ function BassTabPanel({ song }) {
     setSavedLoading(true);
     setError('');
     try {
-      const data = await libraryGet('tabs', { songId: song.id, instrument: 'bass' });
+      const data = await libraryGet('tabs', { songId: song.id, instrument: config.key });
       const tabs = data.tabs || [];
       setSavedTabs(tabs);
 
@@ -276,45 +334,46 @@ function BassTabPanel({ song }) {
         || tabs.find((item) => isSongsterrTab(item))
         || null;
 
-      const own = tabs.find((item) => hasStoredUserContent(item))
-        || tabs.find((item) => item.source === 'Manual')
-        || principal
-        || tabs.find((item) => item.id === preferredId)
-        || tabs[0]
+      const own = tabs.find((item) => item.source === 'Manual')
+        || tabs.find((item) => hasStoredUserContent(item) && !isSongsterrTab(item))
+        || tabs.find((item) => item.id === preferredId && !isSongsterrTab(item))
         || null;
 
       setPrincipalTab(principal);
       setMyTab(own);
       setActiveTab(own);
-      hydrateEditor(own);
+      if (own) hydrateEditor(own);
     } catch (err) {
-      setError(err?.message || 'Não foi possível carregar as tabs guardadas.');
+      setError(err?.message || 'Não foi possível carregar a tab.');
     } finally {
       setSavedLoading(false);
     }
   }
 
-  async function searchBassTabs() {
+  async function searchPrincipal() {
     setSearching(true);
     setError('');
     try {
       const q = song.artist + ' ' + song.title;
-      const response = await fetch(TAB_SEARCH_URL + '?q=' + encodeURIComponent(q), {
-        headers: {
-          apikey: SUPABASE_PUBLISHABLE_KEY,
-          Accept: 'application/json',
-        },
-      });
+      const response = await fetch(
+        TAB_SEARCH_URL + '?q=' + encodeURIComponent(q) + '&instrument=' + encodeURIComponent(config.key),
+        {
+          headers: {
+            apikey: SUPABASE_PUBLISHABLE_KEY,
+            Accept: 'application/json',
+          },
+        }
+      );
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || 'Não foi possível localizar a versão principal.');
 
       const firstResult = (data.results || [])[0];
-      const firstTrack = firstResult?.bassTracks?.[0];
+      const firstTrack = firstResult?.tracks?.[0];
 
       if (firstResult && firstTrack) {
         const saved = await libraryPost('save_tab_reference', {
           songId: song.id,
-          instrument: 'bass',
+          instrument: config.key,
           result: firstResult,
           track: firstTrack,
         });
@@ -330,51 +389,8 @@ function BassTabPanel({ song }) {
     }
   }
 
-  async function chooseVersion(result, track) {
-    const key = String(result.songId) + '-' + String(track.index);
-    setSavingKey(key);
-    setError('');
-    setSavedMessage('');
-    try {
-      const data = await libraryPost('save_tab_reference', {
-        songId: song.id,
-        instrument: 'bass',
-        result,
-        track,
-      });
-      await loadSavedTabs(data.tab?.id || null);
-      setShowSource(true);
-      setEditing(false);
-      setSavedMessage('Versão guardada como principal.');
-    } catch (err) {
-      setError(err?.message || 'Não foi possível guardar esta versão.');
-    } finally {
-      setSavingKey('');
-    }
-  }
-
-  async function makePrimary(tab) {
-    if (!tab) return;
-    if (tab.is_primary) {
-      setActiveTab(tab);
-      hydrateEditor(tab);
-      return;
-    }
-    setSavingKey(tab.id);
-    setError('');
-    try {
-      const data = await libraryPost('set_primary_tab', { tabId: tab.id });
-      await loadSavedTabs(data.tab?.id || tab.id);
-      setSavedMessage('Versão definida como principal.');
-    } catch (err) {
-      setError(err?.message || 'Não foi possível definir a versão principal.');
-    } finally {
-      setSavingKey('');
-    }
-  }
-
-  function resizeStrings(nextCount) {
-    setStringCount(nextCount);
+  function resizeRows(nextCount) {
+    setRowCount(nextCount);
     setBlocks((prev) => prev.map((block) => {
       const nextCells = Array.from({ length: nextCount }, (_, rowIndex) => {
         const existing = Array.isArray(block.cells?.[rowIndex]) ? block.cells[rowIndex] : [];
@@ -388,8 +404,14 @@ function BassTabPanel({ song }) {
     setBlocks((prev) => prev.map((block, index) => index === blockIndex ? { ...block, name } : block));
   }
 
+  function cleanCellValue(value) {
+    if (config.cellMode === 'number') return value.replace(/[^0-9]/g, '').slice(0, 2);
+    if (config.cellMode === 'text') return value.slice(0, 6);
+    return value;
+  }
+
   function updateCell(blockIndex, rowIndex, colIndex, value) {
-    const clean = value.replace(/[^0-9]/g, '').slice(0, 2);
+    const clean = cleanCellValue(value);
     setBlocks((prev) => prev.map((block, index) => {
       if (index !== blockIndex) return block;
       const cells = block.cells.map((row, r) => {
@@ -400,9 +422,25 @@ function BassTabPanel({ song }) {
     }));
   }
 
+  function cycleDrumCell(blockIndex, rowIndex, colIndex) {
+    const values = config.drumValues || ['', 'x', 'o'];
+    setBlocks((prev) => prev.map((block, index) => {
+      if (index !== blockIndex) return block;
+      const cells = block.cells.map((row, r) => {
+        if (r !== rowIndex) return row;
+        return row.map((cell, col) => {
+          if (col !== colIndex) return cell;
+          const current = values.indexOf(String(cell || ''));
+          return values[(current + 1) % values.length];
+        });
+      });
+      return { ...block, cells };
+    }));
+  }
+
   function clearBlock(blockIndex) {
     setBlocks((prev) => prev.map((block, index) =>
-      index === blockIndex ? { ...block, cells: emptyRows(stringCount) } : block
+      index === blockIndex ? { ...block, cells: emptyRows(rowCount) } : block
     ));
   }
 
@@ -411,7 +449,7 @@ function BassTabPanel({ song }) {
   }
 
   function addBlock() {
-    setBlocks((prev) => [...prev, newBlock('Bloco ' + (prev.length + 1), stringCount)]);
+    setBlocks((prev) => [...prev, newBlock('Bloco ' + (prev.length + 1), rowCount)]);
   }
 
   async function createOwnTab() {
@@ -422,7 +460,7 @@ function BassTabPanel({ song }) {
       if (!tab) {
         const data = await libraryPost('create_manual_tab', {
           songId: song.id,
-          instrument: 'bass',
+          instrument: config.key,
         });
         tab = data.tab;
         setSavedTabs((prev) => prev.some((item) => item.id === tab.id) ? prev : [tab, ...prev]);
@@ -446,7 +484,7 @@ function BassTabPanel({ song }) {
       const data = await libraryPost('save_tab_content', {
         tabId: activeTab.id,
         title: tabTitle,
-        stringCount,
+        stringCount: rowCount,
         isPublic,
         editorMode,
         sections: blocks,
@@ -466,39 +504,56 @@ function BassTabPanel({ song }) {
     }
   }
 
-  function sourceUri(tab) {
-    if (!tab?.source_url) return null;
-    const joiner = tab.source_url.includes('?') ? '&' : '?';
-    return tab.source_url + joiner + 'inst=bass';
-  }
-
   function renderGrid(block, blockIndex, editable) {
-    const labels = stringLabels(stringCount, activeTab?.tuning_label);
+    const labels = rowLabels(rowCount, principalTab?.tuning_label || activeTab?.tuning_label);
+
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.visualGridScroll}>
         <View>
-          {Array.from({ length: stringCount }, (_, rowIndex) => (
+          {Array.from({ length: rowCount }, (_, rowIndex) => (
             <View key={'row-' + rowIndex} style={styles.visualGridRow}>
-              <Text style={styles.stringLabel}>{labels[rowIndex] || ''}</Text>
+              <Text style={[styles.stringLabel, config.cellMode !== 'number' && styles.instrumentRowLabel]}>
+                {labels[rowIndex] || ''}
+              </Text>
               <Text style={styles.stringDivider}>|</Text>
+
               {Array.from({ length: GRID_COLUMNS }, (_, colIndex) => {
                 const value = block.cells?.[rowIndex]?.[colIndex] || '';
-                return editable ? (
+
+                if (!editable) {
+                  return (
+                    <View key={'cell-' + rowIndex + '-' + colIndex} style={[styles.fretCellView, value ? styles.fretCellFilled : null, config.cellMode === 'text' && styles.noteCell]}>
+                      <Text style={value ? styles.fretCellTextFilled : styles.fretCellTextEmpty}>{value || '–'}</Text>
+                    </View>
+                  );
+                }
+
+                if (config.cellMode === 'drum') {
+                  return (
+                    <TouchableOpacity
+                      key={'cell-' + rowIndex + '-' + colIndex}
+                      style={[styles.fretCellView, value ? styles.fretCellFilled : null]}
+                      onPress={() => cycleDrumCell(blockIndex, rowIndex, colIndex)}
+                    >
+                      <Text style={value ? styles.fretCellTextFilled : styles.fretCellTextEmpty}>{value || '–'}</Text>
+                    </TouchableOpacity>
+                  );
+                }
+
+                return (
                   <TextInput
                     key={'cell-' + rowIndex + '-' + colIndex}
                     value={value}
                     onChangeText={(text) => updateCell(blockIndex, rowIndex, colIndex, text)}
-                    keyboardType="number-pad"
-                    maxLength={2}
+                    keyboardType={config.cellMode === 'number' ? 'number-pad' : 'default'}
+                    autoCapitalize={config.cellMode === 'text' ? 'characters' : 'none'}
+                    autoCorrect={false}
+                    maxLength={config.cellMode === 'number' ? 2 : 6}
                     selectTextOnFocus
-                    style={[styles.fretCell, value ? styles.fretCellFilled : null]}
+                    style={[styles.fretCell, value ? styles.fretCellFilled : null, config.cellMode === 'text' && styles.noteCell]}
                     placeholder="–"
                     placeholderTextColor="#56627a"
                   />
-                ) : (
-                  <View key={'cell-' + rowIndex + '-' + colIndex} style={[styles.fretCellView, value ? styles.fretCellFilled : null]}>
-                    <Text style={value ? styles.fretCellTextFilled : styles.fretCellTextEmpty}>{value || '–'}</Text>
-                  </View>
                 );
               })}
             </View>
@@ -510,12 +565,12 @@ function BassTabPanel({ song }) {
 
   useEffect(() => {
     loadSavedTabs();
-  }, [song.id]);
+  }, [song.id, config.key]);
 
   useEffect(() => {
     const hasPrincipal = savedTabs.some((item) => isSongsterrTab(item));
     if (!savedLoading && !hasPrincipal && !searched && !searching) {
-      searchBassTabs();
+      searchPrincipal();
     }
   }, [savedLoading, savedTabs, searched, searching]);
 
@@ -523,7 +578,7 @@ function BassTabPanel({ song }) {
     return (
       <View style={styles.feedbackBox}>
         <ActivityIndicator />
-        <Text style={styles.feedbackText}>A carregar a tab…</Text>
+        <Text style={styles.feedbackText}>A carregar {config.label.toLowerCase()}…</Text>
       </View>
     );
   }
@@ -555,11 +610,11 @@ function BassTabPanel({ song }) {
           {searching ? (
             <View style={styles.feedbackBox}>
               <ActivityIndicator />
-              <Text style={styles.feedbackText}>A localizar a versão principal…</Text>
+              <Text style={styles.feedbackText}>A localizar a versão principal no Songsterr…</Text>
             </View>
           ) : principalTab ? (
             <View>
-              <Text style={styles.contentTitle}>Versão principal</Text>
+              <Text style={styles.contentTitle}>Versão principal · {config.label}</Text>
               <Text style={styles.detailArtist}>{principalTab.source_artist || song.artist}</Text>
               <Text style={styles.meta}>
                 {(principalTab.source_title || song.title)
@@ -580,7 +635,7 @@ function BassTabPanel({ song }) {
             <View>
               <Text style={styles.emptyTitle}>Sem versão principal disponível.</Text>
               <Text style={styles.emptyText}>
-                Não encontrei automaticamente uma versão de baixo no Songsterr para esta música.
+                Não encontrei automaticamente uma versão de {config.label.toLowerCase()} no Songsterr para esta música.
               </Text>
             </View>
           )}
@@ -592,12 +647,12 @@ function BassTabPanel({ song }) {
               style={styles.secondaryButton}
               onPress={() => {
                 setEditing(false);
-                hydrateEditor(myTab);
+                if (myTab) hydrateEditor(myTab);
               }}
             >
               <Text style={styles.secondaryButtonText}>‹ Voltar à minha tab</Text>
             </TouchableOpacity>
-            <Text style={styles.contentTitle}>Editar Tab</Text>
+            <Text style={styles.contentTitle}>Editar · {config.label}</Text>
           </View>
 
           <View style={[styles.visualEditorShell, tablet && styles.visualEditorShellTablet]}>
@@ -615,23 +670,34 @@ function BassTabPanel({ song }) {
 
               <Text style={styles.formLabel}>Instrumento</Text>
               <View style={styles.readonlyField}>
-                <Text style={styles.readonlyFieldText}>🎸 Baixo</Text>
+                <Text style={styles.readonlyFieldText}>{config.icon} {config.label}</Text>
               </View>
 
-              <Text style={styles.formLabel}>Número de cordas</Text>
+              <Text style={styles.formLabel}>{config.rowCountLabel}</Text>
               <View style={styles.stringCountRow}>
-                {[4, 5, 6].map((count) => (
+                {config.rowOptions.map((count) => (
                   <TouchableOpacity
                     key={count}
-                    style={[styles.stringCountButton, stringCount === count && styles.stringCountButtonActive]}
-                    onPress={() => resizeStrings(count)}
+                    style={[styles.stringCountButton, rowCount === count && styles.stringCountButtonActive]}
+                    onPress={() => resizeRows(count)}
                   >
-                    <Text style={[styles.stringCountText, stringCount === count && styles.stringCountTextActive]}>
+                    <Text style={[styles.stringCountText, rowCount === count && styles.stringCountTextActive]}>
                       {count}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
+
+              {config.cellMode === 'drum' ? (
+                <View style={styles.drumLegend}>
+                  <Text style={styles.drumLegendText}>x = prato/hi-hat · o = ataque · g = ghost · f = flam</Text>
+                  <Text style={styles.contentSub}>Toca numa caixa para alternar o símbolo.</Text>
+                </View>
+              ) : config.cellMode === 'text' ? (
+                <Text style={styles.contentSub}>Nas caixas podes escrever notas ou acordes curtos.</Text>
+              ) : (
+                <Text style={styles.contentSub}>Nas caixas coloca o número do traste.</Text>
+              )}
 
               <Text style={styles.formLabel}>Música associada</Text>
               <View style={styles.readonlyField}>
@@ -711,7 +777,7 @@ function BassTabPanel({ song }) {
                     textAlignVertical="top"
                     autoCapitalize="none"
                     autoCorrect={false}
-                    placeholder="Escreve ou cola aqui a tua tab em formato livre."
+                    placeholder="Escreve ou cola aqui a tua tab / notas em formato livre."
                     placeholderTextColor={COLORS.muted}
                     style={[styles.tabEditorInput, styles.tabEditorLarge]}
                   />
@@ -724,9 +790,9 @@ function BassTabPanel({ song }) {
         <View>
           <View style={styles.bassToolbar}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.contentTitle}>{myTab?.title || 'Minha tab'}</Text>
+              <Text style={styles.contentTitle}>{myTab?.title || ('Minha tab · ' + config.label)}</Text>
               <Text style={styles.contentSub}>
-                {(myTab?.string_count || 4) + ' cordas'}
+                {config.rowCountLabel + ': ' + (myTab?.string_count || config.defaultRows)}
               </Text>
             </View>
             <TouchableOpacity
@@ -752,26 +818,57 @@ function BassTabPanel({ song }) {
             <View>
               {(Array.isArray(myTab?.sections) ? myTab.sections : [])
                 .filter((block) => block?.type === 'visual-block' || Array.isArray(block?.cells))
-                .map((block, blockIndex) => (
-                  <View key={block.id || String(blockIndex)} style={styles.visualBlockCard}>
-                    <Text style={styles.tabSectionTitle}>{block.name || ('Bloco ' + (blockIndex + 1))}</Text>
-                    {renderGrid({
-                      ...block,
-                      cells: Array.from({ length: myTab?.string_count || 4 }, (_, rowIndex) => {
-                        const existing = Array.isArray(block?.cells?.[rowIndex]) ? block.cells[rowIndex] : [];
-                        return Array.from({ length: GRID_COLUMNS }, (_, colIndex) => String(existing[colIndex] ?? ''));
-                      }),
-                    }, blockIndex, false)}
-                  </View>
-                ))}
+                .map((block, blockIndex) => {
+                  const count = config.rowOptions.includes(Number(myTab?.string_count))
+                    ? Number(myTab.string_count)
+                    : config.defaultRows;
+                  return (
+                    <View key={block.id || String(blockIndex)} style={styles.visualBlockCard}>
+                      <Text style={styles.tabSectionTitle}>{block.name || ('Bloco ' + (blockIndex + 1))}</Text>
+                      {(() => {
+                        const previousCount = rowCount;
+                        const normalized = {
+                          ...block,
+                          cells: Array.from({ length: count }, (_, rowIndex) => {
+                            const existing = Array.isArray(block?.cells?.[rowIndex]) ? block.cells[rowIndex] : [];
+                            return Array.from({ length: GRID_COLUMNS }, (_, colIndex) => String(existing[colIndex] ?? ''));
+                          }),
+                        };
+                        const labels = rowLabels(count, principalTab?.tuning_label || myTab?.tuning_label);
+                        return (
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.visualGridScroll}>
+                            <View>
+                              {Array.from({ length: count }, (_, rowIndex) => (
+                                <View key={'read-row-' + rowIndex} style={styles.visualGridRow}>
+                                  <Text style={[styles.stringLabel, config.cellMode !== 'number' && styles.instrumentRowLabel]}>
+                                    {labels[rowIndex] || ''}
+                                  </Text>
+                                  <Text style={styles.stringDivider}>|</Text>
+                                  {Array.from({ length: GRID_COLUMNS }, (_, colIndex) => {
+                                    const value = normalized.cells?.[rowIndex]?.[colIndex] || '';
+                                    return (
+                                      <View key={'read-cell-' + rowIndex + '-' + colIndex} style={[styles.fretCellView, value ? styles.fretCellFilled : null, config.cellMode === 'text' && styles.noteCell]}>
+                                        <Text style={value ? styles.fretCellTextFilled : styles.fretCellTextEmpty}>{value || '–'}</Text>
+                                      </View>
+                                    );
+                                  })}
+                                </View>
+                              ))}
+                            </View>
+                          </ScrollView>
+                        );
+                      })()}
+                    </View>
+                  );
+                })}
             </View>
           )}
         </View>
       ) : (
         <View style={styles.feedbackBox}>
-          <Text style={styles.emptyTitle}>Ainda não tens uma tab própria.</Text>
+          <Text style={styles.emptyTitle}>Ainda não tens uma tab própria de {config.label.toLowerCase()}.</Text>
           <Text style={styles.feedbackText}>
-            Cria a tua tab de baixo e usa o editor visual, blocos, número de cordas e texto livre.
+            Cria uma tab manual com um quadro adaptado a {config.label.toLowerCase()}.
           </Text>
           <TouchableOpacity style={styles.primaryButton} onPress={createOwnTab}>
             <Text style={styles.primaryText}>＋ Criar minha tab</Text>
@@ -898,12 +995,12 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate, setlistCon
                   ? song.lyricsSource
                     ? `Letra automática · ${song.lyricsSource}`
                     : 'Letra da música'
-                  : tab === 'Baixo'
-                    ? 'Pesquisa automática de tablaturas de baixo'
+                  : ['Guitarra', 'Baixo', 'Bateria', 'Teclas'].includes(tab)
+                    ? 'Minha tab + versão principal Songsterr'
                     : 'Conteúdo da música'}
               </Text>
             </View>
-            {tab !== 'Letra' && tab !== 'Baixo' ? (
+            {tab === 'Notas' ? (
               <TouchableOpacity style={styles.primarySmall}>
                 <Text style={styles.primaryText}>+ Adicionar</Text>
               </TouchableOpacity>
@@ -930,8 +1027,14 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate, setlistCon
                 </TouchableOpacity>
               </View>
             )
+          ) : tab === 'Guitarra' ? (
+            <InstrumentTabPanel song={song} instrument="guitar" />
           ) : tab === 'Baixo' ? (
-            <BassTabPanel song={song} />
+            <InstrumentTabPanel song={song} instrument="bass" />
+          ) : tab === 'Bateria' ? (
+            <InstrumentTabPanel song={song} instrument="drums" />
+          ) : tab === 'Teclas' ? (
+            <InstrumentTabPanel song={song} instrument="keys" />
           ) : (
             <View>
               <Text style={styles.emptyTitle}>Ainda não existe conteúdo em {tab.toLowerCase()}.</Text>
@@ -1298,6 +1401,7 @@ function SetlistsScreen({ setlists, loading, onBack, onCreate, onOpen }) {
   );
 }
 
+
 function DraggableSetlistRow({
   item,
   index,
@@ -1305,38 +1409,59 @@ function DraggableSetlistRow({
   onOpen,
   onRemove,
   onDragStart,
-  onDragMove,
   onDragEnd,
 }) {
+  const translateY = useRef(new Animated.Value(0)).current;
+
   const panResponder = useMemo(
     () => PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => onDragStart(index),
-      onPanResponderMove: (_, gesture) => onDragMove(gesture.dy),
-      onPanResponderRelease: () => onDragEnd(),
-      onPanResponderTerminate: () => onDragEnd(),
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 2,
+      onMoveShouldSetPanResponderCapture: (_, gesture) => Math.abs(gesture.dy) > 2,
+      onPanResponderGrant: () => {
+        translateY.setValue(0);
+        onDragStart(index);
+      },
+      onPanResponderMove: (_, gesture) => {
+        translateY.setValue(gesture.dy);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        translateY.setValue(0);
+        onDragEnd(index, gesture.dy);
+      },
+      onPanResponderTerminate: (_, gesture) => {
+        translateY.setValue(0);
+        onDragEnd(index, gesture?.dy || 0);
+      },
+      onShouldBlockNativeResponder: () => true,
     }),
-    [index, onDragStart, onDragMove, onDragEnd]
+    [index, onDragStart, onDragEnd, translateY]
   );
 
   return (
-    <View style={[styles.setlistSongRow, dragging && styles.setlistSongRowDragging]}>
-      <View {...panResponder.panHandlers} style={styles.dragHandle}>
+    <Animated.View
+      style={[
+        styles.setlistSongRow,
+        dragging && styles.setlistSongRowDragging,
+        dragging ? { transform: [{ translateY }], zIndex: 20, elevation: 8 } : null,
+      ]}
+    >
+      <View {...panResponder.panHandlers} style={styles.dragHandle} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
         <Text style={styles.dragHandleText}>≡</Text>
       </View>
       <Text style={styles.setlistPosition}>{index + 1}</Text>
-      <TouchableOpacity style={styles.setlistSongMain} onPress={() => onOpen(item, index)}>
+      <TouchableOpacity style={styles.setlistSongMain} onPress={() => onOpen(item, index)} disabled={dragging}>
         <View style={styles.coverSmall}><SongCover song={item} /></View>
         <View style={styles.songInfo}>
           <Text style={styles.songTitle} numberOfLines={1}>{item.title}</Text>
           <Text style={styles.songArtist} numberOfLines={1}>{item.artist}</Text>
         </View>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.removeSetlistSongButton} onPress={() => onRemove(item)}>
+      <TouchableOpacity style={styles.removeSetlistSongButton} onPress={() => onRemove(item)} disabled={dragging}>
         <Text style={styles.removeSetlistSongText}>×</Text>
       </TouchableOpacity>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -1348,13 +1473,6 @@ function SetlistDetail({ setlist, librarySongs, onBack, onOpenSong, onChanged })
   const [busySongId, setBusySongId] = useState(null);
   const [error, setError] = useState('');
   const [draggingId, setDraggingId] = useState(null);
-  const dragStartIndex = useRef(-1);
-  const dragBase = useRef([]);
-  const currentOrder = useRef([]);
-
-  useEffect(() => {
-    currentOrder.current = songs;
-  }, [songs]);
 
   async function load() {
     setLoading(true);
@@ -1400,30 +1518,28 @@ function SetlistDetail({ setlist, librarySongs, onBack, onOpenSong, onChanged })
   }
 
   function startDrag(index) {
-    dragStartIndex.current = index;
-    dragBase.current = [...songs];
     setDraggingId(songs[index]?.id || null);
   }
 
-  function moveDrag(dy) {
-    const start = dragStartIndex.current;
-    if (start < 0 || !dragBase.current.length) return;
-    const target = Math.max(0, Math.min(dragBase.current.length - 1, start + Math.round(dy / 74)));
-    setSongs(moveItem(dragBase.current, start, target));
-  }
-
-  async function endDrag() {
-    const order = currentOrder.current;
-    const hadDrag = dragStartIndex.current >= 0;
-    dragStartIndex.current = -1;
-    dragBase.current = [];
+  async function endDrag(fromIndex, dy) {
     setDraggingId(null);
-    if (!hadDrag || !order.length) return;
+    if (!songs.length) return;
+
+    const rowHeight = 77;
+    const targetIndex = Math.max(
+      0,
+      Math.min(songs.length - 1, fromIndex + Math.round(Number(dy || 0) / rowHeight))
+    );
+
+    if (targetIndex === fromIndex) return;
+
+    const next = moveItem(songs, fromIndex, targetIndex);
+    setSongs(next);
 
     try {
       await libraryPost('reorder_setlist', {
         setlistId: setlist.id,
-        songIds: order.map((item) => item.id),
+        songIds: next.map((item) => item.id),
       });
       onChanged?.();
     } catch (err) {
@@ -1508,7 +1624,6 @@ function SetlistDetail({ setlist, librarySongs, onBack, onOpenSong, onChanged })
                 onOpen={(song, songIndex) => onOpenSong(song, songs, songIndex)}
                 onRemove={removeSong}
                 onDragStart={startDrag}
-                onDragMove={moveDrag}
                 onDragEnd={endDrag}
               />
             ))}
@@ -2256,12 +2371,16 @@ const styles = StyleSheet.create({
   visualGridScroll: { paddingBottom: 4, paddingRight: 6 },
   visualGridRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   stringLabel: { width: 22, color: '#a968ff', fontWeight: '900', textAlign: 'center', fontFamily: 'monospace' },
+  instrumentRowLabel: { width: 52, fontSize: 11 },
   stringDivider: { color: COLORS.muted, width: 10, textAlign: 'center', fontFamily: 'monospace' },
   fretCell: { width: 34, height: 30, marginRight: 3, borderWidth: 1, borderColor: '#202a3d', borderRadius: 5, backgroundColor: '#111827', color: COLORS.text, padding: 0, textAlign: 'center', fontFamily: 'monospace', fontWeight: '800', fontSize: 13 },
   fretCellView: { width: 34, height: 30, marginRight: 3, borderWidth: 1, borderColor: '#202a3d', borderRadius: 5, backgroundColor: '#111827', alignItems: 'center', justifyContent: 'center' },
   fretCellFilled: { borderColor: '#7850c7', backgroundColor: '#2a1c4a' },
   fretCellTextFilled: { color: '#d8c6ff', fontFamily: 'monospace', fontWeight: '900', fontSize: 13 },
   fretCellTextEmpty: { color: '#56627a', fontFamily: 'monospace', fontSize: 13 },
+  noteCell: { width: 52 },
+  drumLegend: { backgroundColor: '#0a101b', borderWidth: 1, borderColor: COLORS.border, borderRadius: 9, padding: 10, marginBottom: 12 },
+  drumLegendText: { color: '#c9b2ff', fontSize: 11, fontWeight: '700', marginBottom: 4 },
   addBlockButton: { borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.border, borderRadius: 10, paddingVertical: 13, alignItems: 'center', marginBottom: 12 },
   addBlockText: { color: COLORS.text, fontWeight: '800' },
 
@@ -2275,7 +2394,7 @@ const styles = StyleSheet.create({
   addSongRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#172033' },
   setlistSongsList: { paddingBottom: 40 },
   setlistSongRow: { minHeight: 70, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, backgroundColor: '#0d1320', paddingVertical: 8, paddingHorizontal: 8, marginBottom: 7 },
-  setlistSongRowDragging: { borderColor: COLORS.purple, backgroundColor: '#21163a', opacity: 0.92 },
+  setlistSongRowDragging: { borderColor: COLORS.purple, backgroundColor: '#21163a', opacity: 0.96, shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   dragHandle: { width: 38, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
   dragHandleText: { color: '#b99cff', fontSize: 28, fontWeight: '900' },
   setlistPosition: { width: 28, color: COLORS.muted, textAlign: 'center', fontWeight: '800' },
