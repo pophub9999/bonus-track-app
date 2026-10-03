@@ -256,7 +256,7 @@ function FullscreenStage({
 
           <TouchableOpacity
             style={styles.stageControlButton}
-            onPress={() => onFontSizeChange?.(Math.max(16, fontSize - 2))}
+            onPress={() => onFontSizeChange?.(Math.max(8, fontSize - 2))}
           >
             <Text style={styles.stageControlText}>A−</Text>
           </TouchableOpacity>
@@ -707,12 +707,12 @@ function InstrumentTabPanel({ song, instrument }) {
       ? Number(myTab.string_count)
       : config.defaultRows;
     const labels = rowLabels(count, principalTab?.tuning_label || myTab?.tuning_label);
-    const cellWidth = Math.max(48, stageFontSize + 22);
-    const cellHeight = Math.max(42, stageFontSize + 16);
+    const cellWidth = Math.max(20, stageFontSize + 10);
+    const cellHeight = Math.max(24, stageFontSize + 8);
 
     return (
       <View key={block.id || String(blockIndex)} style={styles.stageTabBlock}>
-        <Text style={[styles.stageTabBlockTitle, { fontSize: Math.max(20, stageFontSize - 2) }]}>
+        <Text style={[styles.stageTabBlockTitle, { fontSize: Math.max(12, stageFontSize - 2) }]}>
           {block.name || ('Bloco ' + (blockIndex + 1))}
         </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -722,7 +722,7 @@ function InstrumentTabPanel({ song, instrument }) {
                 <Text style={[
                   styles.stageGridLabel,
                   config.cellMode !== 'number' && styles.stageGridLabelWide,
-                  { fontSize: Math.max(16, stageFontSize - 6) },
+                  { fontSize: Math.max(8, stageFontSize - 4) },
                 ]}>
                   {labels[rowIndex] || ''}
                 </Text>
@@ -991,7 +991,7 @@ function InstrumentTabPanel({ song, instrument }) {
             <View style={styles.tabActionRow}>
               <TouchableOpacity
                 style={styles.stageBarButton}
-                onPress={() => setStageFontSize((value) => Math.max(16, value - 2))}
+                onPress={() => setStageFontSize((value) => Math.max(8, value - 2))}
               >
                 <Text style={styles.stageText}>A−</Text>
               </TouchableOpacity>
@@ -1077,16 +1077,16 @@ function InstrumentTabPanel({ song, instrument }) {
                                     style={[
                                       styles.stringLabel,
                                       config.cellMode !== 'number' && styles.instrumentRowLabel,
-                                      { fontSize: Math.max(12, stageFontSize - 8) },
+                                      { fontSize: Math.max(8, stageFontSize - 4) },
                                     ]}
                                   >
                                     {labels[rowIndex] || ''}
                                   </Text>
-                                  <Text style={[styles.stringDivider, { fontSize: Math.max(14, stageFontSize - 6) }]}>|</Text>
+                                  <Text style={[styles.stringDivider, { fontSize: Math.max(8, stageFontSize - 4) }]}>|</Text>
                                   {Array.from({ length: GRID_COLUMNS }, (_, colIndex) => {
                                     const value = normalized.cells?.[rowIndex]?.[colIndex] || '';
-                                    const cellWidth = Math.max(config.cellMode === 'text' ? 58 : 42, stageFontSize + (config.cellMode === 'text' ? 30 : 18));
-                                    const cellHeight = Math.max(36, stageFontSize + 12);
+                                    const cellWidth = Math.max(config.cellMode === 'text' ? 30 : 20, stageFontSize + (config.cellMode === 'text' ? 16 : 10));
+                                    const cellHeight = Math.max(24, stageFontSize + 8);
                                     return (
                                       <View
                                         key={'read-cell-' + rowIndex + '-' + colIndex}
@@ -1100,7 +1100,7 @@ function InstrumentTabPanel({ song, instrument }) {
                                         <Text
                                           style={[
                                             value ? styles.fretCellTextFilled : styles.fretCellTextEmpty,
-                                            { fontSize: Math.max(14, stageFontSize - 4) },
+                                            { fontSize: Math.max(8, stageFontSize - 2) },
                                           ]}
                                         >
                                           {value || '–'}
@@ -1274,7 +1274,7 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate, setlistCon
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.stageBarButton}
-              onPress={() => setLyricsFontSize((value) => Math.max(16, value - 2))}
+              onPress={() => setLyricsFontSize((value) => Math.max(8, value - 2))}
             >
               <Text style={styles.stageText}>A−</Text>
             </TouchableOpacity>
@@ -2651,7 +2651,7 @@ const styles = StyleSheet.create({
   stageFontPill: { minWidth: 58, borderRadius: 9, backgroundColor: '#1d2637', paddingHorizontal: 10, paddingVertical: 8, alignItems: 'center' },
   stageFontText: { color: '#d9c9ff', fontWeight: '900', fontSize: 12 },
   stageScroll: { flex: 1 },
-  stageScrollContent: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 100, maxWidth: 1200, width: '100%', alignSelf: 'center' },
+  stageScrollContent: { paddingHorizontal: 12, paddingTop: 18, paddingBottom: 100, maxWidth: 1400, width: '100%', alignSelf: 'center' },
   stageBottomSpace: { height: 220 },
   stageLyricsText: { color: '#ffffff', fontWeight: '500', letterSpacing: 0.15 },
   stageFreeText: { color: '#ffffff', fontFamily: 'monospace' },
@@ -2661,7 +2661,7 @@ const styles = StyleSheet.create({
   stageGridLabel: { width: 34, color: '#b77cff', fontWeight: '900', textAlign: 'center', fontFamily: 'monospace' },
   stageGridLabelWide: { width: 66 },
   stageGridDivider: { color: '#7f8ba3', width: 18, textAlign: 'center', fontFamily: 'monospace' },
-  stageGridCell: { marginRight: 5, borderWidth: 1, borderColor: '#202a3d', borderRadius: 7, backgroundColor: '#0f1522', alignItems: 'center', justifyContent: 'center' },
+  stageGridCell: { marginRight: 2, borderWidth: 1, borderColor: '#202a3d', borderRadius: 5, backgroundColor: '#0f1522', alignItems: 'center', justifyContent: 'center' },
   stageGridCellFilled: { borderColor: '#7850c7', backgroundColor: '#291b49' },
   stageGridCellTextFilled: { color: '#ffffff', fontFamily: 'monospace', fontWeight: '900' },
   stageGridCellTextEmpty: { color: '#47536a', fontFamily: 'monospace' },
