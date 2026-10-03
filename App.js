@@ -180,6 +180,8 @@ function FullscreenStage({
   onAutoScrollChange,
   speed = 1,
   onSpeedChange,
+  fitToWidth = false,
+  onFitToWidthChange,
   children,
 }) {
   const scrollRef = useRef(null);
@@ -271,6 +273,15 @@ function FullscreenStage({
           >
             <Text style={styles.stageControlText}>A＋</Text>
           </TouchableOpacity>
+
+          {onFitToWidthChange ? (
+            <TouchableOpacity
+              style={[styles.stageControlButton, fitToWidth && styles.stageControlButtonActive]}
+              onPress={() => onFitToWidthChange(!fitToWidth)}
+            >
+              <Text style={styles.stageControlText}>{fitToWidth ? '✓ Ajustado' : '↔ Ajustar'}</Text>
+            </TouchableOpacity>
+          ) : null}
 
           <TouchableOpacity
             style={styles.stageControlButton}
@@ -382,6 +393,7 @@ function InstrumentTabPanel({ song, instrument }) {
   const [stageFontSize, setStageFontSize] = useState(26);
   const [stageAutoScroll, setStageAutoScroll] = useState(false);
   const [stageSpeed, setStageSpeed] = useState(1);
+  const [stageFitToWidth, setStageFitToWidth] = useState(true);
 
   const [tabTitle, setTabTitle] = useState('');
   const [rowCount, setRowCount] = useState(config.defaultRows);
@@ -707,8 +719,21 @@ function InstrumentTabPanel({ song, instrument }) {
       ? Number(myTab.string_count)
       : config.defaultRows;
     const labels = rowLabels(count, principalTab?.tuning_label || myTab?.tuning_label);
-    const cellWidth = Math.max(20, stageFontSize + 10);
-    const cellHeight = Math.max(24, stageFontSize + 8);
+    const stageContentWidth = Math.max(240, Math.min(width, 1400) - 24);
+    const labelWidth = config.cellMode === 'number' ? 34 : 66;
+    const dividerWidth = 18;
+    const gapWidth = GRID_COLUMNS * 2;
+    const fittedWidth = Math.max(
+      12,
+      Math.floor((stageContentWidth - labelWidth - dividerWidth - gapWidth) / GRID_COLUMNS)
+    );
+    const cellWidth = stageFitToWidth ? fittedWidth : Math.max(20, stageFontSize + 10);
+    const effectiveFontSize = stageFitToWidth
+      ? Math.max(8, Math.min(stageFontSize, fittedWidth - 3))
+      : stageFontSize;
+    const cellHeight = stageFitToWidth
+      ? Math.max(20, effectiveFontSize + 8)
+      : Math.max(24, stageFontSize + 8);
 
     return (
       <View key={block.id || String(blockIndex)} style={styles.stageTabBlock}>
@@ -741,7 +766,7 @@ function InstrumentTabPanel({ song, instrument }) {
                     >
                       <Text style={[
                         value ? styles.stageGridCellTextFilled : styles.stageGridCellTextEmpty,
-                        { fontSize: stageFontSize },
+                        { fontSize: effectiveFontSize },
                       ]}>
                         {value || '–'}
                       </Text>
@@ -1146,6 +1171,8 @@ function InstrumentTabPanel({ song, instrument }) {
         onAutoScrollChange={setStageAutoScroll}
         speed={stageSpeed}
         onSpeedChange={setStageSpeed}
+        fitToWidth={stageFitToWidth}
+        onFitToWidthChange={setStageFitToWidth}
       >
         {myTab?.editor_mode === 'text' && myTab?.custom_tab?.trim() ? (
           <Text style={[styles.stageFreeText, { fontSize: stageFontSize, lineHeight: Math.round(stageFontSize * 1.45) }]}>
