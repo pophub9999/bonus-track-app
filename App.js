@@ -188,16 +188,26 @@ function FullscreenStage({
   const scrollY = useRef(0);
   const contentHeight = useRef(0);
   const viewportHeight = useRef(0);
+  const autoScrollRef = useRef(Boolean(autoScroll));
+
+  useEffect(() => {
+    autoScrollRef.current = Boolean(autoScroll);
+  }, [autoScroll]);
 
   useEffect(() => {
     if (!visible) {
+      autoScrollRef.current = false;
       scrollY.current = 0;
       return undefined;
     }
 
     if (!autoScroll) return undefined;
 
+    autoScrollRef.current = true;
+
     const timer = setInterval(() => {
+      if (!autoScrollRef.current) return;
+
       const maxY = Math.max(0, contentHeight.current - viewportHeight.current);
       if (maxY <= 0) return;
 
@@ -206,19 +216,41 @@ function FullscreenStage({
       scrollRef.current?.scrollTo?.({ y: next, animated: false });
 
       if (next >= maxY) {
+        autoScrollRef.current = false;
         onAutoScrollChange?.(false);
       }
     }, 50);
 
     return () => clearInterval(timer);
-  }, [visible, autoScroll, speed, onAutoScrollChange]);
+  }, [visible, autoScroll, speed]);
 
   const speeds = [0.5, 1, 1.5, 2];
+
+  function toggleAutoScroll() {
+    const next = !autoScrollRef.current;
+    autoScrollRef.current = next;
+    onAutoScrollChange?.(next);
+  }
 
   function cycleSpeed() {
     const currentIndex = speeds.findIndex((value) => value === speed);
     const next = speeds[(currentIndex + 1) % speeds.length] || 1;
     onSpeedChange?.(next);
+  }
+
+  function changeFont(delta) {
+    if (fitToWidth && onFitToWidthChange) {
+      onFitToWidthChange(false);
+    }
+    const next = Math.max(8, Math.min(44, fontSize + delta));
+    onFontSizeChange?.(next);
+  }
+
+  function goToStart() {
+    autoScrollRef.current = false;
+    onAutoScrollChange?.(false);
+    scrollY.current = 0;
+    scrollRef.current?.scrollTo?.({ y: 0, animated: true });
   }
 
   return (
@@ -247,7 +279,7 @@ function FullscreenStage({
         <View style={styles.stageControls}>
           <TouchableOpacity
             style={[styles.stageControlButton, autoScroll && styles.stageControlButtonActive]}
-            onPress={() => onAutoScrollChange?.(!autoScroll)}
+            onPress={toggleAutoScroll}
           >
             <Text style={styles.stageControlText}>{autoScroll ? '❚❚ Pausar' : '▶ Auto scroll'}</Text>
           </TouchableOpacity>
@@ -258,7 +290,7 @@ function FullscreenStage({
 
           <TouchableOpacity
             style={styles.stageControlButton}
-            onPress={() => onFontSizeChange?.(Math.max(8, fontSize - 2))}
+            onPress={() => changeFont(-2)}
           >
             <Text style={styles.stageControlText}>A−</Text>
           </TouchableOpacity>
@@ -269,7 +301,7 @@ function FullscreenStage({
 
           <TouchableOpacity
             style={styles.stageControlButton}
-            onPress={() => onFontSizeChange?.(Math.min(44, fontSize + 2))}
+            onPress={() => changeFont(2)}
           >
             <Text style={styles.stageControlText}>A＋</Text>
           </TouchableOpacity>
@@ -277,7 +309,7 @@ function FullscreenStage({
           {onFitToWidthChange ? (
             <TouchableOpacity
               style={[styles.stageControlButton, fitToWidth && styles.stageControlButtonActive]}
-              onPress={() => onFitToWidthChange(!fitToWidth)}
+              onPress={() => onFitToWidthChange?.(!fitToWidth)}
             >
               <Text style={styles.stageControlText}>{fitToWidth ? '✓ Ajustado' : '↔ Ajustar'}</Text>
             </TouchableOpacity>
@@ -285,10 +317,7 @@ function FullscreenStage({
 
           <TouchableOpacity
             style={styles.stageControlButton}
-            onPress={() => {
-              scrollY.current = 0;
-              scrollRef.current?.scrollTo?.({ y: 0, animated: true });
-            }}
+            onPress={goToStart}
           >
             <Text style={styles.stageControlText}>↑ Início</Text>
           </TouchableOpacity>
@@ -302,6 +331,12 @@ function FullscreenStage({
           onContentSizeChange={(_, height) => { contentHeight.current = height; }}
           onLayout={(event) => { viewportHeight.current = event.nativeEvent.layout.height; }}
           onScroll={(event) => { scrollY.current = event.nativeEvent.contentOffset.y; }}
+          onScrollBeginDrag={() => {
+            if (autoScrollRef.current) {
+              autoScrollRef.current = false;
+              onAutoScrollChange?.(false);
+            }
+          }}
           scrollEventThrottle={16}
         >
           {children}
@@ -1016,7 +1051,10 @@ function InstrumentTabPanel({ song, instrument }) {
             <View style={styles.tabActionRow}>
               <TouchableOpacity
                 style={styles.stageBarButton}
-                onPress={() => setStageFontSize((value) => Math.max(8, value - 2))}
+                onPress={() => {
+                  setStageFitToWidth(false);
+                  setStageFontSize((value) => Math.max(8, value - 2));
+                }}
               >
                 <Text style={styles.stageText}>A−</Text>
               </TouchableOpacity>
@@ -1025,7 +1063,10 @@ function InstrumentTabPanel({ song, instrument }) {
               </View>
               <TouchableOpacity
                 style={styles.stageBarButton}
-                onPress={() => setStageFontSize((value) => Math.min(44, value + 2))}
+                onPress={() => {
+                  setStageFitToWidth(false);
+                  setStageFontSize((value) => Math.min(44, value + 2));
+                }}
               >
                 <Text style={styles.stageText}>A＋</Text>
               </TouchableOpacity>
