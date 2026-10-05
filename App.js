@@ -408,7 +408,7 @@ const INSTRUMENT_TAB_CONFIG = {
 };
 
 function InstrumentTabPanel({ song, instrument }) {
-  const GRID_COLUMNS = 18;
+  const GRID_COLUMNS = 32;
   const config = INSTRUMENT_TAB_CONFIG[instrument] || INSTRUMENT_TAB_CONFIG.bass;
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
@@ -592,7 +592,7 @@ function InstrumentTabPanel({ song, instrument }) {
 
   function cleanCellValue(value) {
     if (config.cellMode === 'number') {
-      if (instrument === 'bass') return value.replace(/[^0-9/]/g, '').slice(0, 5);
+      if (instrument === 'bass') return value.replace(/[^0-9/\\]/g, '').slice(0, 5);
       return value.replace(/[^0-9]/g, '').slice(0, 2);
     }
     if (config.cellMode === 'text') return value.slice(0, 6);
@@ -953,7 +953,7 @@ function InstrumentTabPanel({ song, instrument }) {
               ) : config.cellMode === 'text' ? (
                 <Text style={styles.contentSub}>Nas caixas podes escrever notas ou acordes curtos.</Text>
               ) : instrument === 'bass' ? (
-                <Text style={styles.contentSub}>Nas caixas podes usar trastes e slide, por exemplo: 5, / ou 5/7.</Text>
+                <Text style={styles.contentSub}>Nas caixas podes usar trastes e slides, por exemplo: 5, /, \\, 5/7 ou 7\\5. Cada bloco tem 32 casas.</Text>
               ) : (
                 <Text style={styles.contentSub}>Nas caixas coloca o número do traste.</Text>
               )}
