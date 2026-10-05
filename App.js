@@ -1047,14 +1047,14 @@ function InstrumentTabPanel({ song, instrument }) {
         </View>
       ) : ownExists ? (
         <View>
-          <View style={styles.bassToolbar}>
-            <View style={{ flex: 1 }}>
+          <View style={[styles.bassToolbar, !tablet && styles.bassToolbarMobile]}>
+            <View style={tablet ? { flex: 1 } : styles.bassToolbarTitleMobile}>
               <Text style={styles.contentTitle}>{myTab?.title || ('Minha tab · ' + config.label)}</Text>
               <Text style={styles.contentSub}>
                 {config.rowCountLabel + ': ' + (myTab?.string_count || config.defaultRows)}
               </Text>
             </View>
-            <View style={styles.tabActionRow}>
+            <View style={[styles.tabActionRow, !tablet && styles.tabActionRowMobile]}>
               <TouchableOpacity
                 style={styles.stageBarButton}
                 onPress={() => {
@@ -2797,7 +2797,7 @@ const styles = StyleSheet.create({
   stageGridCellFilled: { borderColor: '#7850c7', backgroundColor: '#291b49' },
   stageGridCellTextFilled: { color: '#ffffff', fontFamily: 'monospace', fontWeight: '900' },
   stageGridCellTextEmpty: { color: '#47536a', fontFamily: 'monospace' },
-  tabActionRow: { flexDirection: 'row', gap: 7, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end' },
+  tabActionRow: { flexDirection: 'row', gap: 7, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 1, maxWidth: '100%' },
   stageBarButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
   stageBarPill: { backgroundColor: '#202838', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
     stageBar: { backgroundColor: COLORS.panel2, borderRadius: 13, padding: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 22, marginBottom: 16 },
@@ -2827,6 +2827,9 @@ const styles = StyleSheet.create({
   bassTrackMeta: { color: COLORS.muted, marginTop: 4, fontSize: 12, lineHeight: 18 },
 
   bassToolbar: { flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' },
+  bassToolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: 12 },
+  bassToolbarTitleMobile: { width: '100%', flexShrink: 1 },
+  tabActionRowMobile: { width: '100%', maxWidth: '100%', justifyContent: 'flex-start', flexShrink: 1 },
   successInline: { color: COLORS.success, marginVertical: 10, fontWeight: '700' },
   savedTabsBlock: { marginBottom: 16 },
   savedTabRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, marginBottom: 8, backgroundColor: '#0d1320' },
