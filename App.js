@@ -16,6 +16,7 @@ import {
   PanResponder,
   Animated,
   Modal,
+  Alert,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -1231,16 +1232,43 @@ function InstrumentTabPanel({ song, instrument }) {
   );
 }
 
-function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate, setlistContext }) {
+function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, setlistContext }) {
   const [tab, setTab] = useState('Letra');
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsError, setLyricsError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [lyricsFontSize, setLyricsFontSize] = useState(26);
   const [lyricsStageVisible, setLyricsStageVisible] = useState(false);
   const [lyricsAutoScroll, setLyricsAutoScroll] = useState(false);
   const [lyricsSpeed, setLyricsSpeed] = useState(1);
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
+
+  function confirmDeleteSong() {
+    setDeleteError('');
+    Alert.alert(
+      'Apagar música',
+      'Queres mesmo apagar "' + song.title + '"? A música será removida também das playlists, alinhamentos e tabs guardadas.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Apagar',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await onDelete?.(song);
+            } catch (error) {
+              setDeleteError(error?.message || 'Não foi possível apagar a música.');
+            } finally {
+              setDeleting(false);
+            }
+          },
+        },
+      ]
+    );
+  }
 
   async function retryLyrics() {
     setLyricsLoading(true);
@@ -1325,9 +1353,20 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onSongUpdate, setlistCon
               <TouchableOpacity style={styles.secondaryButton} onPress={onEdit}>
                 <Text style={styles.secondaryButtonText}>✎ Editar</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deleteSongButton}
+                onPress={confirmDeleteSong}
+                disabled={deleting}
+              >
+                {deleting
+                  ? <ActivityIndicator />
+                  : <Text style={styles.deleteSongText}>🗑 Apagar</Text>}
+              </TouchableOpacity>
             </View>
           </View>
         </View>
+
+        {deleteError ? <Text style={styles.errorInline}>{deleteError}</Text> : null}
 
         {tab === 'Letra' && song.lyrics ? (
           <View style={styles.stageBar}>
@@ -2385,6 +2424,23 @@ export default function App() {
     );
   }
 
+  async function deleteSong(song) {
+    await libraryPost('delete_song', { songId: song.id });
+
+    setSongs((prev) => prev.filter((item) => item.id !== song.id));
+    setSelected(null);
+
+    const wasConcert = Boolean(concertContext);
+    setConcertContext(null);
+
+    await Promise.all([
+      loadPlaylists(),
+      loadSetlists(),
+    ]);
+
+    setScreen(wasConcert && selectedSetlist ? 'setlistDetail' : 'songs');
+  }
+
   function openConcertSong(song, orderedSongs, index) {
     setSelected(song);
     setConcertContext({
@@ -2420,6 +2476,7 @@ export default function App() {
         onBack={() => setScreen(concertContext ? 'setlistDetail' : 'songs')}
         onPlaylist={() => setScreen('playlistPicker')}
         onEdit={() => setScreen('edit')}
+        onDelete={deleteSong}
         onSongUpdate={updateSong}
         setlistContext={concertContext ? {
           name: concertContext.setlist?.name || 'Alinhamento',
@@ -2703,6 +2760,8 @@ const styles = StyleSheet.create({
   externalLinkButton: { backgroundColor: COLORS.panel2, borderWidth: 1, borderColor: COLORS.border, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
   externalLinkText: { color: COLORS.text, fontWeight: '800', fontSize: 12 },
     actionRow: { flexDirection: 'row', gap: 8, marginTop: 18, flexWrap: 'wrap' },
+  deleteSongButton: { borderWidth: 1, borderColor: '#7f1d1d', backgroundColor: '#2a1117', borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9, minWidth: 86, alignItems: 'center', justifyContent: 'center' },
+  deleteSongText: { color: '#ff8a98', fontWeight: '800', fontSize: 12 },
   secondaryButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 13 },
   stageSafe: { flex: 1, backgroundColor: '#05070c' },
   stageHeader: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#1d2535' },
