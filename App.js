@@ -591,7 +591,10 @@ function InstrumentTabPanel({ song, instrument }) {
   }
 
   function cleanCellValue(value) {
-    if (config.cellMode === 'number') return value.replace(/[^0-9]/g, '').slice(0, 2);
+    if (config.cellMode === 'number') {
+      if (instrument === 'bass') return value.replace(/[^0-9/]/g, '').slice(0, 5);
+      return value.replace(/[^0-9]/g, '').slice(0, 2);
+    }
     if (config.cellMode === 'text') return value.slice(0, 6);
     return value;
   }
@@ -731,10 +734,10 @@ function InstrumentTabPanel({ song, instrument }) {
                     key={'cell-' + rowIndex + '-' + colIndex}
                     value={value}
                     onChangeText={(text) => updateCell(blockIndex, rowIndex, colIndex, text)}
-                    keyboardType={config.cellMode === 'number' ? 'number-pad' : 'default'}
+                    keyboardType={config.cellMode === 'number' && instrument !== 'bass' ? 'number-pad' : 'default'}
                     autoCapitalize={config.cellMode === 'text' ? 'characters' : 'none'}
                     autoCorrect={false}
-                    maxLength={config.cellMode === 'number' ? 2 : 6}
+                    maxLength={config.cellMode === 'number' ? (instrument === 'bass' ? 5 : 2) : 6}
                     selectTextOnFocus
                     style={[styles.fretCell, value ? styles.fretCellFilled : null, config.cellMode === 'text' && styles.noteCell]}
                     placeholder="–"
@@ -949,6 +952,8 @@ function InstrumentTabPanel({ song, instrument }) {
                 </View>
               ) : config.cellMode === 'text' ? (
                 <Text style={styles.contentSub}>Nas caixas podes escrever notas ou acordes curtos.</Text>
+              ) : instrument === 'bass' ? (
+                <Text style={styles.contentSub}>Nas caixas podes usar trastes e slide, por exemplo: 5, / ou 5/7.</Text>
               ) : (
                 <Text style={styles.contentSub}>Nas caixas coloca o número do traste.</Text>
               )}
