@@ -3,50 +3,49 @@ name: Deploy web preview
 on:
   push:
     branches: [main]
+    paths:
+      - 'App.js'
+      - 'index.js'
+      - 'app.json'
+      - 'package.json'
+      - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
-  build:
+  deploy:
+    name: Deploy web to EAS Hosting
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
+      - name: Check Expo token
+        run: |
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "Missing EXPO_TOKEN repository secret."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20.19.0
+          node-version: '22'
 
       - name: Install dependencies
         run: npm install
 
+      - name: Setup Expo / EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
       - name: Export Expo web
         run: npm run export:web
 
-      - name: Disable Jekyll
-        run: touch dist/.nojekyll
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy production web
+        env:
+          CI: '1'
+        run: eas deploy --prod --non-interactive --dev-domain bonus-track-pophub9999
