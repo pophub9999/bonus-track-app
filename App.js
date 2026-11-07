@@ -17,6 +17,7 @@ import {
   Animated,
   Modal,
   Alert,
+  Platform,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -168,6 +169,69 @@ function TabButton({ label, active, onPress }) {
 
 
 
+
+
+
+function WebsiteChrome({ active, onNavigate, onAdd, children }) {
+  const { width } = useWindowDimensions();
+  const compact = width < 760;
+  const navItems = [
+    { key: 'songs', label: 'Músicas' },
+    { key: 'playlists', label: 'Playlists' },
+    { key: 'setlists', label: 'Alinhamentos' },
+  ];
+
+  return (
+    <View style={styles.websiteRoot}>
+      <View style={styles.websiteHeader}>
+        <View style={[styles.websiteHeaderInner, compact && styles.websiteHeaderInnerCompact]}>
+          <TouchableOpacity
+            style={styles.websiteBrand}
+            onPress={() => onNavigate?.('songs')}
+          >
+            <View style={styles.websiteBrandMark}>
+              <Text style={styles.websiteBrandMarkText}>♫</Text>
+            </View>
+            <View>
+              <Text style={styles.websiteBrandTitle}>Bonus Track</Text>
+              {!compact ? <Text style={styles.websiteBrandSub}>Letras, tabs e alinhamentos</Text> : null}
+            </View>
+          </TouchableOpacity>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.websiteNavScroll}
+            contentContainerStyle={styles.websiteNav}
+          >
+            {navItems.map((item) => (
+              <TouchableOpacity
+                key={item.key}
+                style={[styles.websiteNavItem, active === item.key && styles.websiteNavItemActive]}
+                onPress={() => onNavigate?.(item.key)}
+              >
+                <Text style={[styles.websiteNavText, active === item.key && styles.websiteNavTextActive]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <TouchableOpacity
+            style={[styles.websiteAddButton, compact && styles.websiteAddButtonCompact]}
+            onPress={onAdd}
+          >
+            <Text style={styles.websiteAddButtonText}>{compact ? '＋' : '＋ Adicionar música'}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.websiteContent}>
+        {children}
+      </View>
+    </View>
+  );
+}
 
 
 function FullscreenStage({
@@ -2328,6 +2392,7 @@ function PlaylistPicker({ song, playlists, onBack, onCreate, onAdd }) {
 export default function App() {
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
+  const isWeb = Platform.OS === 'web';
   const [songs, setSongs] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [setlists, setSetlists] = useState([]);
@@ -2470,12 +2535,47 @@ export default function App() {
     setSongs((prev) => prev.map((s) => s.id === updated.id ? updated : s));
   }
 
+  function websiteNavigate(target) {
+    setConcertContext(null);
+    if (target === 'songs') {
+      setScreen('songs');
+      return;
+    }
+    if (target === 'playlists') {
+      setScreen('playlists');
+      return;
+    }
+    if (target === 'setlists') {
+      setScreen('setlists');
+    }
+  }
+
+  function withWebsiteChrome(content, activeSection = 'songs') {
+    if (!isWeb) return content;
+
+    return (
+      <WebsiteChrome
+        active={activeSection}
+        onNavigate={websiteNavigate}
+        onAdd={() => {
+          setConcertContext(null);
+          setScreen('add');
+        }}
+      >
+        {content}
+      </WebsiteChrome>
+    );
+  }
+
   if (screen === 'add') {
-    return <AddSong onClose={() => setScreen('songs')} onAdd={addSongFromSpotify} />;
+    return withWebsiteChrome(
+      <AddSong onClose={() => setScreen('songs')} onAdd={addSongFromSpotify} />,
+      'songs'
+    );
   }
 
   if (screen === 'detail' && selected) {
-    return (
+    return withWebsiteChrome(
       <SongDetail
         song={selected}
         onBack={() => setScreen(concertContext ? 'setlistDetail' : 'songs')}
@@ -2490,34 +2590,37 @@ export default function App() {
           onPrevious: () => goConcert(-1),
           onNext: () => goConcert(1),
         } : null}
-      />
+      />,
+      'songs'
     );
   }
 
   if (screen === 'edit' && selected) {
-    return (
+    return withWebsiteChrome(
       <EditSong
         song={selected}
         onBack={() => setScreen('detail')}
         onSave={saveSongEdits}
-      />
+      />,
+      'songs'
     );
   }
 
   if (screen === 'playlistPicker' && selected) {
-    return (
+    return withWebsiteChrome(
       <PlaylistPicker
         song={selected}
         playlists={playlists}
         onBack={() => setScreen('detail')}
         onCreate={createPlaylist}
         onAdd={addToPlaylist}
-      />
+      />,
+      'songs'
     );
   }
 
   if (screen === 'setlists') {
-    return (
+    return withWebsiteChrome(
       <SetlistsScreen
         setlists={setlists}
         loading={loadingSetlists}
@@ -2528,12 +2631,13 @@ export default function App() {
           setConcertContext(null);
           setScreen('setlistDetail');
         }}
-      />
+      />,
+      'setlists'
     );
   }
 
   if (screen === 'setlistDetail' && selectedSetlist) {
-    return (
+    return withWebsiteChrome(
       <SetlistDetail
         setlist={selectedSetlist}
         librarySongs={songs}
@@ -2543,37 +2647,40 @@ export default function App() {
         }}
         onOpenSong={openConcertSong}
         onChanged={loadSetlists}
-      />
+      />,
+      'setlists'
     );
   }
 
   if (screen === 'playlists') {
-    return (
+    return withWebsiteChrome(
       <PlaylistsScreen
         playlists={playlists}
         loading={loadingPlaylists}
         onBack={() => setScreen('songs')}
         onCreate={createPlaylist}
         onOpen={(playlist) => { setSelectedPlaylist(playlist); setScreen('playlistDetail'); }}
-      />
+      />,
+      'playlists'
     );
   }
 
   if (screen === 'playlistDetail' && selectedPlaylist) {
-    return (
+    return withWebsiteChrome(
       <PlaylistDetail
         playlist={selectedPlaylist}
         onBack={() => setScreen('playlists')}
         onOpenSong={(song) => { setConcertContext(null); setSelected(song); setScreen('detail'); }}
-      />
+      />,
+      'playlists'
     );
   }
 
-  return (
+  return withWebsiteChrome(
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" />
-      <View style={[styles.appShell, tablet && styles.appShellTablet]}>
-        {tablet && (
+      <View style={[styles.appShell, !isWeb && tablet && styles.appShellTablet, isWeb && styles.websiteAppShell]}>
+        {!isWeb && tablet && (
           <View style={styles.sidebar}>
             <Text style={styles.logo}>◉  Bonus Track</Text>
             <Text style={styles.navCaption}>PRINCIPAL</Text>
@@ -2598,7 +2705,7 @@ export default function App() {
           </View>
         )}
 
-        <View style={styles.main}>
+        <View style={[styles.main, isWeb && styles.websiteLibraryMain]}>
           <View style={styles.header}>
             <View>
               <Text style={styles.title}>Músicas</Text>
@@ -2654,7 +2761,7 @@ export default function App() {
             />
           )}
 
-          {!tablet && (
+          {!isWeb && !tablet && (
             <View style={styles.bottomNav}>
               <TouchableOpacity style={styles.bottomButton} onPress={() => setScreen('songs')}>
                 <Text style={[styles.bottomItem, styles.bottomActive]}>♫{'\n'}Músicas</Text>
@@ -2672,11 +2779,33 @@ export default function App() {
           )}
         </View>
       </View>
-    </SafeAreaView>
+    </SafeAreaView>,
+    'songs'
   );
 }
 
 const styles = StyleSheet.create({
+  websiteRoot: { flex: 1, minHeight: '100%', backgroundColor: COLORS.bg },
+  websiteHeader: { backgroundColor: '#070b12', borderBottomWidth: 1, borderBottomColor: COLORS.border, zIndex: 30 },
+  websiteHeaderInner: { width: '100%', maxWidth: 1320, alignSelf: 'center', minHeight: 74, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', gap: 20 },
+  websiteHeaderInnerCompact: { minHeight: 64, paddingHorizontal: 12, gap: 10 },
+  websiteBrand: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
+  websiteBrandMark: { width: 38, height: 38, borderRadius: 11, backgroundColor: COLORS.purple2, alignItems: 'center', justifyContent: 'center' },
+  websiteBrandMarkText: { color: '#fff', fontSize: 20, fontWeight: '900' },
+  websiteBrandTitle: { color: COLORS.text, fontSize: 18, fontWeight: '900' },
+  websiteBrandSub: { color: COLORS.muted, fontSize: 10, marginTop: 1 },
+  websiteNavScroll: { flex: 1 },
+  websiteNav: { alignItems: 'center', gap: 5, paddingVertical: 8 },
+  websiteNavItem: { paddingHorizontal: 13, paddingVertical: 10, borderRadius: 10 },
+  websiteNavItemActive: { backgroundColor: '#211638' },
+  websiteNavText: { color: '#a8b5c9', fontSize: 13, fontWeight: '700' },
+  websiteNavTextActive: { color: '#d5c4ff' },
+  websiteAddButton: { flexShrink: 0, backgroundColor: COLORS.purple, borderRadius: 11, paddingHorizontal: 15, paddingVertical: 11 },
+  websiteAddButtonCompact: { width: 42, height: 42, paddingHorizontal: 0, paddingVertical: 0, alignItems: 'center', justifyContent: 'center' },
+  websiteAddButtonText: { color: '#fff', fontWeight: '900', fontSize: 13 },
+  websiteContent: { flex: 1, width: '100%', maxWidth: 1320, alignSelf: 'center' },
+  websiteAppShell: { width: '100%', maxWidth: 1320, alignSelf: 'center' },
+  websiteLibraryMain: { paddingHorizontal: 28, paddingTop: 28, paddingBottom: 40 },
   safe: { flex: 1, backgroundColor: COLORS.bg },
   appShell: { flex: 1 },
   appShellTablet: { flexDirection: 'row' },
