@@ -34,8 +34,8 @@ const COLORS = {
   danger: '#ef8b9b',
 };
 
-const SUPABASE_URL = 'https://zndlradxdcpfrrxirswy.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable__RU-9-tCv4jTLaovhNg25A_1WqQsiFy';
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://zndlradxdcpfrrxirswy.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable__RU-9-tCv4jTLaovhNg25A_1WqQsiFy';
 const SPOTIFY_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spotify-search`;
 const LIBRARY_URL = `${SUPABASE_URL}/functions/v1/library`;
 const TAB_SEARCH_URL = `${SUPABASE_URL}/functions/v1/tab-search`;
@@ -498,7 +498,7 @@ function InstrumentTabPanel({ song, instrument }) {
   const [tabTitle, setTabTitle] = useState('');
   const [rowCount, setRowCount] = useState(config.defaultRows);
   const [editorMode, setEditorMode] = useState('visual');
-  const [isPublic, setIsPublic] = useState(false);
+  const isPublic = true;
   const [blocks, setBlocks] = useState([]);
   const [customTab, setCustomTab] = useState('');
 
@@ -554,7 +554,6 @@ function InstrumentTabPanel({ song, instrument }) {
     setTabTitle(tab?.title || ((song.title || 'Tab') + ' - ' + config.label));
     setRowCount(safeCount);
     setEditorMode(tab?.editor_mode === 'text' ? 'text' : 'visual');
-    setIsPublic(Boolean(tab?.is_public));
     setBlocks(normalizeBlocks(tab, safeCount));
     setCustomTab(tab?.custom_tab || '');
   }
@@ -656,7 +655,7 @@ function InstrumentTabPanel({ song, instrument }) {
 
   function cleanCellValue(value) {
     if (config.cellMode === 'number') {
-      if (instrument === 'bass') return value.replace(/[^0-9/\\]/g, '').slice(0, 5);
+      if (instrument === 'bass' || instrument === 'guitar') return value.replace(/[^0-9/\\]/g, '').slice(0, 5);
       return value.replace(/[^0-9]/g, '').slice(0, 2);
     }
     if (config.cellMode === 'text') return value.slice(0, 6);
@@ -798,10 +797,10 @@ function InstrumentTabPanel({ song, instrument }) {
                     key={'cell-' + rowIndex + '-' + colIndex}
                     value={value}
                     onChangeText={(text) => updateCell(blockIndex, rowIndex, colIndex, text)}
-                    keyboardType={config.cellMode === 'number' && instrument !== 'bass' ? 'number-pad' : 'default'}
+                    keyboardType={'default'}
                     autoCapitalize={config.cellMode === 'text' ? 'characters' : 'none'}
                     autoCorrect={false}
-                    maxLength={config.cellMode === 'number' ? (instrument === 'bass' ? 5 : 2) : 6}
+                    maxLength={config.cellMode === 'number' ? 5 : 6}
                     selectTextOnFocus
                     style={[styles.fretCell, value ? styles.fretCellFilled : null, config.cellMode === 'text' && styles.noteCell]}
                     placeholder="–"
@@ -1027,15 +1026,7 @@ function InstrumentTabPanel({ song, instrument }) {
                 <Text style={styles.readonlyFieldText}>{song.title + ' — ' + song.artist}</Text>
               </View>
 
-              <View style={styles.publicRow}>
-                <Text style={styles.formLabel}>Pública</Text>
-                <TouchableOpacity
-                  style={[styles.switchTrack, isPublic && styles.switchTrackOn]}
-                  onPress={() => setIsPublic((value) => !value)}
-                >
-                  <View style={[styles.switchThumb, isPublic && styles.switchThumbOn]} />
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.contentSub}>Biblioteca partilhada · acesso público</Text>
             </View>
 
             <View style={styles.editorMain}>
