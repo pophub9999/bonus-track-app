@@ -1305,29 +1305,24 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
 
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+
   function confirmDeleteSong() {
     setDeleteError('');
-    Alert.alert(
-      'Apagar música',
-      'Queres mesmo apagar "' + song.title + '"? A música será removida também das playlists, alinhamentos e tabs guardadas.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Apagar',
-          style: 'destructive',
-          onPress: async () => {
-            setDeleting(true);
-            try {
-              await onDelete?.(song);
-            } catch (error) {
-              setDeleteError(error?.message || 'Não foi possível apagar a música.');
-            } finally {
-              setDeleting(false);
-            }
-          },
-        },
-      ]
-    );
+    setDeleteConfirmVisible(true);
+  }
+
+  async function performDeleteSong() {
+    setDeleting(true);
+    try {
+      await onDelete?.(song);
+      setDeleteConfirmVisible(false);
+    } catch (error) {
+      setDeleteError(error?.message || 'Não foi possível apagar a música.');
+      setDeleteConfirmVisible(false);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function retryLyrics() {
@@ -1347,6 +1342,18 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" />
+      <Modal visible={deleteConfirmVisible} transparent animationType="fade" onRequestClose={() => !deleting && setDeleteConfirmVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={[styles.contentCard, { width: '100%', maxWidth: 440, minHeight: 0 }]}>
+            <Text style={styles.contentTitle}>Apagar música?</Text>
+            <Text style={[styles.emptyText, { marginVertical: 18 }]}>A música "{song.title}" será removida da biblioteca, das playlists e dos alinhamentos, incluindo as tabs guardadas.</Text>
+            <View style={styles.editActions}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => setDeleteConfirmVisible(false)} disabled={deleting}><Text style={styles.secondaryButtonText}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.deleteSongButton} onPress={performDeleteSong} disabled={deleting}>{deleting ? <ActivityIndicator /> : <Text style={styles.deleteSongText}>Apagar música</Text>}</TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <ScrollView contentContainerStyle={styles.detailWrap}>
         <TouchableOpacity onPress={onBack} style={styles.back}>
           <Text style={styles.backText}>‹  Voltar</Text>
@@ -2219,10 +2226,28 @@ function PlaylistsScreen({ playlists, loading, onBack, onCreate, onOpen }) {
   );
 }
 
-function PlaylistDetail({ playlist, onBack, onOpenSong }) {
+function PlaylistDetail({ playlist, librarySongs, onBack, onOpenSong, onChanged }) {
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [adding, setAdding] = useState(false);
+  const [addQuery, setAddQuery] = useState('');
+  const [busySongId, setBusySongId] = useState(null);
+
+  async function addLibrarySong(song) {
+    setBusySongId(song.id);
+    setError('');
+    try {
+      await libraryPost('add_to_playlist', { playlistId: playlist.id, songId: song.id });
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setError(err?.message || 'Não foi possível adicionar a música.');
+    } finally {
+      setBusySongId(null);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -2247,6 +2272,25 @@ function PlaylistDetail({ playlist, onBack, onOpenSong }) {
         </TouchableOpacity>
         <Text style={styles.title}>{playlist.name}</Text>
         <Text style={styles.subtitle}>{songs.length} músicas</Text>
+        <TouchableOpacity style={[styles.primaryButton, { alignSelf: 'flex-start', marginBottom: 14 }]} onPress={() => setAdding((value) => !value)}>
+          <Text style={styles.primaryText}>{adding ? 'Fechar biblioteca' : '＋ Adicionar da biblioteca'}</Text>
+        </TouchableOpacity>
+        {adding ? (
+          <View style={styles.addSongsPanel}>
+            <TextInput value={addQuery} onChangeText={setAddQuery} placeholder="Pesquisar na biblioteca..." placeholderTextColor={COLORS.muted} style={styles.searchInput} />
+            <ScrollView style={styles.addSongsScroll} keyboardShouldPersistTaps="handled">
+              {librarySongs.filter((item) => (item.title + ' ' + item.artist).toLowerCase().includes(addQuery.toLowerCase())).map((item) => {
+                const included = songs.some((song) => song.id === item.id);
+                return (
+                  <TouchableOpacity key={item.id} style={styles.addSongRow} onPress={() => addLibrarySong(item)} disabled={included || Boolean(busySongId)}>
+                    <View style={styles.songInfo}><Text style={styles.songTitle}>{item.title}</Text><Text style={styles.songArtist}>{item.artist}</Text></View>
+                    {busySongId === item.id ? <ActivityIndicator /> : <Text style={included ? styles.doneText : styles.addText}>{included ? '✓ Adicionada' : '＋ Adicionar'}</Text>}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
 
         {error ? <Text style={styles.errorInline}>{error}</Text> : null}
         {loading ? (
@@ -2480,9 +2524,7 @@ export default function App() {
 
   async function addToPlaylist(playlistId, songId) {
     await libraryPost('add_to_playlist', { playlistId, songId });
-    setPlaylists((prev) =>
-      prev.map((p) => p.id === playlistId ? { ...p, song_count: (p.song_count ?? 0) + 1 } : p)
-    );
+    await loadPlaylists();
   }
 
   async function deleteSong(song) {
@@ -2660,6 +2702,8 @@ export default function App() {
     return withWebsiteChrome(
       <PlaylistDetail
         playlist={selectedPlaylist}
+        librarySongs={songs}
+        onChanged={loadPlaylists}
         onBack={() => setScreen('playlists')}
         onOpenSong={(song) => { setConcertContext(null); setSelected(song); setScreen('detail'); }}
       />,
