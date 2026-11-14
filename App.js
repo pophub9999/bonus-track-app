@@ -1840,7 +1840,40 @@ function AddSong({ onClose, onAdd }) {
 }
 
 
-function SetlistsScreen({ setlists, loading, onBack, onCreate, onOpen }) {
+function ConfirmRowAction({ label = 'Apagar', title, message, onConfirm, disabled = false }) {
+  const [visible, setVisible] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function confirm() {
+    setBusy(true);
+    setError('');
+    try { await onConfirm(); setVisible(false); }
+    catch (err) { setError(err?.message || 'Não foi possível concluir a operação.'); }
+    finally { setBusy(false); }
+  }
+  return (
+    <>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel={title} style={[styles.deleteSongButton, { marginLeft: 10, minHeight: 40, minWidth: 68 }]} disabled={disabled || busy} onPress={() => { setError(''); setVisible(true); }}>
+        <Text style={styles.deleteSongText}>{label}</Text>
+      </TouchableOpacity>
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={() => !busy && setVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={[styles.contentCard, { width: '100%', maxWidth: 440, minHeight: 0 }]}>
+            <Text style={styles.contentTitle}>{title}</Text>
+            <Text style={[styles.emptyText, { marginVertical: 18 }]}>{message}</Text>
+            {error ? <Text style={styles.errorInline}>{error}</Text> : null}
+            <View style={styles.editActions}>
+              <TouchableOpacity style={styles.secondaryButton} disabled={busy} onPress={() => setVisible(false)}><Text style={styles.secondaryButtonText}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.deleteSongButton} disabled={busy} onPress={confirm}>{busy ? <ActivityIndicator /> : <Text style={styles.deleteSongText}>{label}</Text>}</TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+function SetlistsScreen({ setlists, loading, onBack, onCreate, onOpen, onDelete }) {
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -1906,14 +1939,17 @@ function SetlistsScreen({ setlists, loading, onBack, onCreate, onOpen }) {
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.playlistRow} onPress={() => onOpen(item)}>
+              <View style={styles.playlistRow}>
+                <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 }} onPress={() => onOpen(item)}>
                 <View style={styles.setlistIcon}><Text style={styles.setlistIconText}>≡</Text></View>
                 <View style={styles.songInfo}>
                   <Text style={styles.songTitle}>{item.name}</Text>
                   <Text style={styles.songArtist}>{item.song_count ?? 0} músicas</Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
-              </TouchableOpacity>
+                </TouchableOpacity>
+                <ConfirmRowAction title={'Apagar alinhamento "' + item.name + '"?'} message="As músicas continuam na biblioteca. Apenas esta lista e as suas associações serão apagadas." onConfirm={() => onDelete(item)} />
+              </View>
             )}
           />
         )}
@@ -1979,9 +2015,7 @@ function DraggableSetlistRow({
           <Text style={styles.songArtist} numberOfLines={1}>{item.artist}</Text>
         </View>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.removeSetlistSongButton} onPress={() => onRemove(item)} disabled={dragging}>
-        <Text style={styles.removeSetlistSongText}>×</Text>
-      </TouchableOpacity>
+      <ConfirmRowAction label="Retirar" title={'Retirar "' + item.title + '" do alinhamento?'} message="A música continua na biblioteca." onConfirm={() => onRemove(item)} disabled={dragging} />
     </Animated.View>
   );
 }
@@ -2155,7 +2189,7 @@ function SetlistDetail({ setlist, librarySongs, onBack, onOpenSong, onChanged })
   );
 }
 
-function PlaylistsScreen({ playlists, loading, onBack, onCreate, onOpen }) {
+function PlaylistsScreen({ playlists, loading, onBack, onCreate, onOpen, onDelete }) {
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -2213,14 +2247,17 @@ function PlaylistsScreen({ playlists, loading, onBack, onCreate, onOpen }) {
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.playlistRow} onPress={() => onOpen(item)}>
+              <View style={styles.playlistRow}>
+                <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 }} onPress={() => onOpen(item)}>
                 <View style={styles.playlistIcon}><Text style={styles.playlistIconText}>☷</Text></View>
                 <View style={styles.songInfo}>
                   <Text style={styles.songTitle}>{item.name}</Text>
                   <Text style={styles.songArtist}>{item.song_count ?? 0} músicas</Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
-              </TouchableOpacity>
+                </TouchableOpacity>
+                <ConfirmRowAction title={'Apagar playlist "' + item.name + '"?'} message="As músicas continuam na biblioteca. Apenas esta lista e as suas associações serão apagadas." onConfirm={() => onDelete(item)} />
+              </View>
             )}
           />
         )}
@@ -2250,6 +2287,12 @@ function PlaylistDetail({ playlist, librarySongs, onBack, onOpenSong, onChanged 
     } finally {
       setBusySongId(null);
     }
+  }
+
+  async function removeSong(song) {
+    await libraryPost('remove_from_playlist', { playlistId: playlist.id, songId: song.id });
+    setSongs((prev) => prev.filter((item) => item.id !== song.id));
+    onChanged?.();
   }
 
   async function load() {
@@ -2308,14 +2351,17 @@ function PlaylistDetail({ playlist, librarySongs, onBack, onOpenSong, onChanged 
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.songRow} onPress={() => onOpenSong(item)}>
+              <View style={styles.songRow}>
+                <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 }} onPress={() => onOpenSong(item)}>
                 <View style={styles.coverSmall}><SongCover song={item} /></View>
                 <View style={styles.songInfo}>
                   <Text style={styles.songTitle}>{item.title}</Text>
                   <Text style={styles.songArtist}>{item.artist}</Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
-              </TouchableOpacity>
+                </TouchableOpacity>
+                <ConfirmRowAction label="Retirar" title={'Retirar "' + item.title + '" da playlist?'} message="A música continua na biblioteca." onConfirm={() => removeSong(item)} />
+              </View>
             )}
           />
         )}
@@ -2442,6 +2488,7 @@ export default function App() {
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
   const [selectedSetlist, setSelectedSetlist] = useState(null);
   const [concertContext, setConcertContext] = useState(null);
+  const [songOrigin, setSongOrigin] = useState('songs');
   const [query, setQuery] = useState('');
   const [libraryError, setLibraryError] = useState('');
 
@@ -2500,6 +2547,7 @@ export default function App() {
       return [stored, ...without];
     });
     setSelected(stored);
+    setSongOrigin('songs');
     setConcertContext(null);
     setScreen('detail');
   }
@@ -2536,7 +2584,6 @@ export default function App() {
     setSongs((prev) => prev.filter((item) => item.id !== song.id));
     setSelected(null);
 
-    const wasConcert = Boolean(concertContext);
     setConcertContext(null);
 
     await Promise.all([
@@ -2544,11 +2591,12 @@ export default function App() {
       loadSetlists(),
     ]);
 
-    setScreen(wasConcert && selectedSetlist ? 'setlistDetail' : 'songs');
+    setScreen(screen === 'detail' ? songOrigin : 'songs');
   }
 
   function openConcertSong(song, orderedSongs, index) {
     setSelected(song);
+    setSongOrigin('setlistDetail');
     setConcertContext({
       setlist: selectedSetlist,
       songs: orderedSongs,
@@ -2614,7 +2662,7 @@ export default function App() {
     return withWebsiteChrome(
       <SongDetail
         song={selected}
-        onBack={() => setScreen(concertContext ? 'setlistDetail' : 'songs')}
+        onBack={() => setScreen(songOrigin)}
         onPlaylist={() => setScreen('playlistPicker')}
         onEdit={() => setScreen('edit')}
         onDelete={deleteSong}
@@ -2662,6 +2710,7 @@ export default function App() {
         loading={loadingSetlists}
         onBack={() => setScreen('songs')}
         onCreate={createSetlist}
+        onDelete={async (item) => { await libraryPost('delete_setlist', { setlistId: item.id }); setSetlists((prev) => prev.filter((row) => row.id !== item.id)); }}
         onOpen={(setlist) => {
           setSelectedSetlist(setlist);
           setConcertContext(null);
@@ -2695,6 +2744,7 @@ export default function App() {
         loading={loadingPlaylists}
         onBack={() => setScreen('songs')}
         onCreate={createPlaylist}
+        onDelete={async (item) => { await libraryPost('delete_playlist', { playlistId: item.id }); setPlaylists((prev) => prev.filter((row) => row.id !== item.id)); }}
         onOpen={(playlist) => { setSelectedPlaylist(playlist); setScreen('playlistDetail'); }}
       />,
       'playlists'
@@ -2708,7 +2758,7 @@ export default function App() {
         librarySongs={songs}
         onChanged={loadPlaylists}
         onBack={() => setScreen('playlists')}
-        onOpenSong={(song) => { setConcertContext(null); setSelected(song); setScreen('detail'); }}
+        onOpenSong={(song) => { setConcertContext(null); setSongOrigin('playlistDetail'); setSelected(song); setScreen('detail'); }}
       />,
       'playlists'
     );
@@ -2784,7 +2834,8 @@ export default function App() {
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.list}
               renderItem={({ item }) => (
-                <TouchableOpacity style={styles.songRow} onPress={() => { setConcertContext(null); setSelected(item); setScreen('detail'); }}>
+                <View style={styles.songRow}>
+                  <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 }} onPress={() => { setConcertContext(null); setSongOrigin('songs'); setSelected(item); setScreen('detail'); }}>
                   <View style={styles.coverSmall}><SongCover song={item} /></View>
                   <View style={styles.songInfo}>
                     <Text style={styles.songTitle}>{item.title}</Text>
@@ -2794,7 +2845,9 @@ export default function App() {
                     </Text>
                   </View>
                   <Text style={styles.chevron}>›</Text>
-                </TouchableOpacity>
+                  </TouchableOpacity>
+                  <ConfirmRowAction title={'Apagar música "' + item.title + '"?'} message="A música e as respetivas tabs serão apagadas da biblioteca e retiradas das playlists e alinhamentos." onConfirm={() => deleteSong(item)} />
+                </View>
               )}
             />
           )}

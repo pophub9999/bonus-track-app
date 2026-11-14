@@ -730,6 +730,14 @@ export default async function handler(req: Request) {
         return json({ ok: true });
       }
 
+      if (action === "delete_playlist") {
+        const playlistId = body?.playlistId;
+        if (!playlistId) return json({ error: "playlistId is required" }, 400);
+        const { error } = await supabase.from("playlists").delete().eq("id", playlistId);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
       if (action === "create_playlist") {
         const name = String(body?.name ?? "").trim();
         if (!name) return json({ error: "Playlist name is required" }, 400);
