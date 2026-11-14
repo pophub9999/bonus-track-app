@@ -1,0 +1,14 @@
+{
+  "name": "altzeimmer-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild functions/*.ts --outdir=dist --platform=node --format=esm --packages=external"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.119.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

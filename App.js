@@ -34,8 +34,8 @@ const COLORS = {
   danger: '#ef8b9b',
 };
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://zndlradxdcpfrrxirswy.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable__RU-9-tCv4jTLaovhNg25A_1WqQsiFy';
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_PUBLISHABLE_KEY = 'altzeimmer-public';
 const SPOTIFY_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spotify-search`;
 const LIBRARY_URL = `${SUPABASE_URL}/functions/v1/library`;
 const TAB_SEARCH_URL = `${SUPABASE_URL}/functions/v1/tab-search`;
@@ -927,6 +927,9 @@ function InstrumentTabPanel({ song, instrument }) {
 
       {showSource ? (
         <View style={styles.primaryTabCard}>
+          <TouchableOpacity style={[styles.secondaryButton, { alignSelf: 'flex-start', marginBottom: 14 }]} onPress={() => openExternalLink('https://www.songsterr.com/?pattern=' + encodeURIComponent(song.artist + ' ' + song.title))}>
+            <Text style={styles.secondaryButtonText}>Abrir pesquisa no Songsterr ↗</Text>
+          </TouchableOpacity>
           {searching ? (
             <View style={styles.feedbackBox}>
               <ActivityIndicator />
