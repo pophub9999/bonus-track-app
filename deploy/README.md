@@ -1,17 +1,13 @@
-# Bonus Track no Coolify
+# Altzeimmer — produção
 
-Acesso público, sem login. Biblioteca e tabs partilhadas.
+Website: https://altzeimmer.nextit.freeddns.org
 
-## Publicação
+Projeto e aplicação Altzeimmer no Coolify. Branch de publicação: codex/vps-public-library. Build Dockerfile, porta 80, healthcheck /health.
 
-Criar aplicação a partir deste repositório e selecionar Dockerfile, porta interna 80 e health check /health. Não publicar a porta diretamente na internet; usar o proxy HTTPS do Coolify. Definir o domínio no painel após configurar o DNS.
+O frontend chama /functions/v1 no mesmo domínio. O Nginx encaminha esses pedidos para altzeimmer-api:8080 na rede coolify. A API e o PostgREST estão em /opt/altzeimmer-backend, geridos por Docker Compose; os dados ficam no esquema altzeimmer do Supabase Postgres existente no VPS. Ver backend/README.md.
 
-Build arguments: EXPO_PUBLIC_SUPABASE_URL e EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY. Nunca usar service_role no frontend.
+A origem Supabase gerida foi pausada após comparar o conteúdo integral das seis tabelas. Não reintroduzir URLs da origem no frontend. Backups do corte e dump PostgreSQL estão em /opt/altzeimmer-backups, com acesso restrito.
 
-Esta primeira fase coloca o website no VPS e mantém o Supabase original como backend, preservando IDs e tabs. Não cria nem esvazia bases de dados. A migração do backend para o VPS fica pendente de exportação e validação dos dados originais.
+As pesquisas Spotify e LRCLIB correm pelo backend no VPS. O Songsterr pode recusar pesquisa automática; a interface oferece abertura direta da pesquisa e mantém as referências já guardadas.
 
-## Recuperação dos dados
-
-Antes de migrar: exportar songs, song_tabs, playlists, playlist_songs, setlists e setlist_songs; preservar IDs e relações; comparar contagens e conteúdo JSON das tabs após importação. Guardar backups fora do repositório público. Não apagar nem pausar a origem até validar a cópia.
-
-As funções Supabase versionadas em supabase/functions são cópias do código publicado, sem segredos. Dependem do esquema e da função get_spotify_credentials existentes na origem.
+O endereço anterior bonus-track.185.174.252.117.sslip.io redireciona para o domínio principal através do serviço /opt/altzeimmer-legacy-redirect.
