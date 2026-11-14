@@ -193,7 +193,7 @@ function WebsiteChrome({ active, onNavigate, onAdd, children }) {
               <Text style={styles.websiteBrandMarkText}>♫</Text>
             </View>
             <View>
-              <Text style={styles.websiteBrandTitle}>Bonus Track</Text>
+              <Text style={styles.websiteBrandTitle}>Altzeimmer</Text>
               {!compact ? <Text style={styles.websiteBrandSub}>Letras, tabs e alinhamentos</Text> : null}
             </View>
           </TouchableOpacity>
@@ -2717,7 +2717,7 @@ export default function App() {
       <View style={[styles.appShell, !isWeb && tablet && styles.appShellTablet, isWeb && styles.websiteAppShell]}>
         {!isWeb && tablet && (
           <View style={styles.sidebar}>
-            <Text style={styles.logo}>◉  Bonus Track</Text>
+            <Text style={styles.logo}>◉  Altzeimmer</Text>
             <Text style={styles.navCaption}>PRINCIPAL</Text>
 
             <TouchableOpacity style={styles.sideItem}>
