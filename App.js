@@ -54,6 +54,8 @@ function normalizeSong(song) {
     spotifyUrl: song.spotify_url ?? song.spotifyUrl ?? null,
     catalogUrl: song.catalog_url ?? song.catalogUrl ?? null,
     youtubeUrl: song.youtube_url ?? song.youtubeUrl ?? null,
+    youtubeUrls: song.youtube_urls?.length ? song.youtube_urls : (song.youtubeUrls ?? [song.youtube_url ?? song.youtubeUrl].filter(Boolean)),
+    spotifyUrls: song.spotify_urls?.length ? song.spotify_urls : (song.spotifyUrls ?? [song.spotify_url ?? song.spotifyUrl].filter(Boolean)),
     customUrl: song.custom_url ?? song.customUrl ?? null,
     syncedLyrics: song.synced_lyrics ?? song.syncedLyrics ?? null,
     lyricsSource: song.lyrics_source ?? song.lyricsSource ?? null,
@@ -1401,18 +1403,23 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
               {song.album || 'Álbum desconhecido'}{song.year ? ` · ${song.year}` : ''}
             </Text>
 
-            {(song.youtubeUrl || song.customUrl || song.catalogUrl) ? (
+            {(song.youtubeUrls?.length || song.spotifyUrls?.length || song.customUrl || song.catalogUrl) ? (
               <View style={styles.externalLinksRow}>
                 {song.catalogUrl ? (
                   <TouchableOpacity style={styles.externalLinkButton} onPress={() => openExternalLink(song.catalogUrl)}>
                     <Text style={styles.externalLinkText}>Ver na iTunes Store ↗</Text>
                   </TouchableOpacity>
                 ) : null}
-                {song.youtubeUrl ? (
-                  <TouchableOpacity style={styles.youtubeLinkButton} onPress={() => openExternalLink(song.youtubeUrl)}>
-                    <Text style={styles.externalLinkText}>▶ YouTube</Text>
+                {(song.youtubeUrls || []).map((url, index) => (
+                  <TouchableOpacity key={'youtube-' + index} style={styles.youtubeLinkButton} onPress={() => openExternalLink(url)}>
+                    <Text style={styles.externalLinkText}>▶ YouTube {index + 1}</Text>
                   </TouchableOpacity>
-                ) : null}
+                ))}
+                {(song.spotifyUrls || []).map((url, index) => (
+                  <TouchableOpacity key={'spotify-' + index} style={styles.externalLinkButton} onPress={() => openExternalLink(url)}>
+                    <Text style={styles.externalLinkText}>Spotify {index + 1} ↗</Text>
+                  </TouchableOpacity>
+                ))}
                 {song.customUrl ? (
                   <TouchableOpacity style={styles.externalLinkButton} onPress={() => openExternalLink(song.customUrl)}>
                     <Text style={styles.externalLinkText}>↗ Link</Text>
@@ -1497,7 +1504,7 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
               <Text style={styles.contentSub}>
                 {tab === 'Letra'
                   ? song.lyricsSource
-                    ? `Letra automática · ${song.lyricsSource}`
+                    ? (song.lyricsSource === 'Manual' ? 'Letra editada manualmente' : `Letra automática · ${song.lyricsSource}`)
                     : 'Letra da música'
                   : ['Guitarra', 'Baixo', 'Bateria', 'Teclas'].includes(tab)
                     ? 'Minha tab + versão principal Songsterr'
@@ -1528,7 +1535,7 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
               <View>
                 <Text style={styles.emptyTitle}>Ainda não encontrei a letra automaticamente.</Text>
                 <Text style={styles.emptyText}>
-                  Podes voltar a procurar ou, mais tarde, adicionar/editar a letra manualmente.
+                  Podes voltar a procurar ou adicionar a letra no botão Editar.
                 </Text>
                 {lyricsError ? <Text style={styles.errorInline}>{lyricsError}</Text> : null}
                 <TouchableOpacity style={styles.retryButton} onPress={retryLyrics} disabled={lyricsLoading}>
@@ -1583,7 +1590,9 @@ function EditSong({ song, onBack, onSave }) {
   const [artist, setArtist] = useState(song.artist || '');
   const [album, setAlbum] = useState(song.album || '');
   const [year, setYear] = useState(song.year ? String(song.year) : '');
-  const [youtubeUrl, setYoutubeUrl] = useState(song.youtubeUrl || '');
+  const [youtubeUrls, setYoutubeUrls] = useState(() => Array.from({ length: 3 }, (_, i) => song.youtubeUrls?.[i] || ''));
+  const [spotifyUrls, setSpotifyUrls] = useState(() => Array.from({ length: 3 }, (_, i) => song.spotifyUrls?.[i] || ''));
+  const [lyrics, setLyrics] = useState(song.lyrics || '');
   const [customUrl, setCustomUrl] = useState(song.customUrl || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -1602,7 +1611,9 @@ function EditSong({ song, onBack, onSave }) {
         artist: artist.trim(),
         album: album.trim(),
         year: year.trim(),
-        youtubeUrl: youtubeUrl.trim(),
+        youtubeUrls: youtubeUrls.map((url) => url.trim()).filter(Boolean),
+        spotifyUrls: spotifyUrls.map((url) => url.trim()).filter(Boolean),
+        ...(lyrics !== (song.lyrics || '') ? { lyrics } : {}),
         customUrl: customUrl.trim(),
       });
     } catch (err) {
@@ -1649,17 +1660,24 @@ function EditSong({ song, onBack, onSave }) {
           placeholderTextColor={COLORS.muted}
         />
 
-        <Text style={styles.formLabel}>Link YouTube</Text>
-        <TextInput
-          value={youtubeUrl}
-          onChangeText={setYoutubeUrl}
-          keyboardType="url"
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={styles.formInput}
-          placeholder="https://youtube.com/..."
-          placeholderTextColor={COLORS.muted}
-        />
+        {[['YouTube', youtubeUrls, setYoutubeUrls], ['Spotify', spotifyUrls, setSpotifyUrls]].map(([platform, urls, setUrls]) => (
+          <View key={platform}>
+            <Text style={styles.formLabel}>{platform} · até 3 links</Text>
+            {urls.map((url, index) => (
+              <TextInput key={index} value={url}
+                onChangeText={(value) => setUrls((previous) => previous.map((item, i) => i === index ? value : item))}
+                accessibilityLabel={platform + ' link ' + (index + 1)}
+                keyboardType="url" autoCapitalize="none" autoCorrect={false}
+                style={styles.formInput} placeholder={platform + ' ' + (index + 1) + ' (opcional)'}
+                placeholderTextColor={COLORS.muted} editable={!saving} />
+            ))}
+          </View>
+        ))}
+        <Text style={styles.formLabel}>Letra</Text>
+        <TextInput value={lyrics} onChangeText={setLyrics} multiline
+          accessibilityLabel="Letra da música" editable={!saving}
+          style={[styles.formInput, { minHeight: 280, textAlignVertical: 'top' }]}
+          placeholder="Escreve ou cola a letra…" placeholderTextColor={COLORS.muted} />
 
         <Text style={styles.formLabel}>Outro link</Text>
         <TextInput

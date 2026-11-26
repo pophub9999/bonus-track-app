@@ -1,0 +1,16 @@
+name: Verify song editing
+on:
+  push:
+    branches: [codex/song-links-lyrics]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: npm run export:web
+      - run: npm ci && npm run build
+        working-directory: backend
