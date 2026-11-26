@@ -1,0 +1,24 @@
+name: Verify iTunes catalogue
+on:
+  push:
+    branches: [codex/vps-public-library]
+    paths: ['App.js', 'backend/**', 'deploy/enable-itunes.py', '.github/workflows/verify-itunes.yml']
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python3 -m py_compile deploy/enable-itunes.py
+      - run: npm install
+      - run: npm run export:web
+      - working-directory: backend
+        run: npm ci && npm run build
+      - working-directory: backend
+        run: node --check server.mjs && node --test tests/music-search.test.mjs
+        env:
+          LIVE_ITUNES: '1'

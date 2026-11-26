@@ -1,0 +1,7 @@
+.env
+.env.*
+.spotify.env
+bootstrap*
+import.py
+node_modules
+dist

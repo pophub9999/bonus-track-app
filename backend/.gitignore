@@ -1,0 +1,6 @@
+.env
+.env.*
+.spotify.env
+node_modules/
+dist/
+bootstrap-roles.sql

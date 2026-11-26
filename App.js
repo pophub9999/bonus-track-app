@@ -34,9 +34,11 @@ const COLORS = {
   danger: '#ef8b9b',
 };
 
-const SUPABASE_URL = 'https://zndlradxdcpfrrxirswy.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable__RU-9-tCv4jTLaovhNg25A_1WqQsiFy';
-const SPOTIFY_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spotify-search`;
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_PUBLISHABLE_KEY = 'altzeimmer-public';
+// Spotify desativado: a implementação original permanece em backend/functions/spotify-search.ts.
+// const SPOTIFY_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spotify-search`;
+const MUSIC_SEARCH_URL = `${SUPABASE_URL}/functions/v1/music-search`;
 const LIBRARY_URL = `${SUPABASE_URL}/functions/v1/library`;
 const TAB_SEARCH_URL = `${SUPABASE_URL}/functions/v1/tab-search`;
 
@@ -50,6 +52,7 @@ function normalizeSong(song) {
     thumbnail: song.thumbnail_url ?? song.thumbnail ?? null,
     durationMs: song.duration_ms ?? song.durationMs ?? null,
     spotifyUrl: song.spotify_url ?? song.spotifyUrl ?? null,
+    catalogUrl: song.catalog_url ?? song.catalogUrl ?? null,
     youtubeUrl: song.youtube_url ?? song.youtubeUrl ?? null,
     customUrl: song.custom_url ?? song.customUrl ?? null,
     syncedLyrics: song.synced_lyrics ?? song.syncedLyrics ?? null,
@@ -193,7 +196,7 @@ function WebsiteChrome({ active, onNavigate, onAdd, children }) {
               <Text style={styles.websiteBrandMarkText}>♫</Text>
             </View>
             <View>
-              <Text style={styles.websiteBrandTitle}>Bonus Track</Text>
+              <Text style={styles.websiteBrandTitle}>Altzeimmer</Text>
               {!compact ? <Text style={styles.websiteBrandSub}>Letras, tabs e alinhamentos</Text> : null}
             </View>
           </TouchableOpacity>
@@ -498,7 +501,7 @@ function InstrumentTabPanel({ song, instrument }) {
   const [tabTitle, setTabTitle] = useState('');
   const [rowCount, setRowCount] = useState(config.defaultRows);
   const [editorMode, setEditorMode] = useState('visual');
-  const [isPublic, setIsPublic] = useState(false);
+  const isPublic = true;
   const [blocks, setBlocks] = useState([]);
   const [customTab, setCustomTab] = useState('');
 
@@ -554,7 +557,6 @@ function InstrumentTabPanel({ song, instrument }) {
     setTabTitle(tab?.title || ((song.title || 'Tab') + ' - ' + config.label));
     setRowCount(safeCount);
     setEditorMode(tab?.editor_mode === 'text' ? 'text' : 'visual');
-    setIsPublic(Boolean(tab?.is_public));
     setBlocks(normalizeBlocks(tab, safeCount));
     setCustomTab(tab?.custom_tab || '');
   }
@@ -656,7 +658,7 @@ function InstrumentTabPanel({ song, instrument }) {
 
   function cleanCellValue(value) {
     if (config.cellMode === 'number') {
-      if (instrument === 'bass') return value.replace(/[^0-9/\\]/g, '').slice(0, 5);
+      if (instrument === 'bass' || instrument === 'guitar') return value.replace(/[^0-9/\\]/g, '').slice(0, 5);
       return value.replace(/[^0-9]/g, '').slice(0, 2);
     }
     if (config.cellMode === 'text') return value.slice(0, 6);
@@ -798,10 +800,10 @@ function InstrumentTabPanel({ song, instrument }) {
                     key={'cell-' + rowIndex + '-' + colIndex}
                     value={value}
                     onChangeText={(text) => updateCell(blockIndex, rowIndex, colIndex, text)}
-                    keyboardType={config.cellMode === 'number' && instrument !== 'bass' ? 'number-pad' : 'default'}
+                    keyboardType={'default'}
                     autoCapitalize={config.cellMode === 'text' ? 'characters' : 'none'}
                     autoCorrect={false}
-                    maxLength={config.cellMode === 'number' ? (instrument === 'bass' ? 5 : 2) : 6}
+                    maxLength={config.cellMode === 'number' ? 5 : 6}
                     selectTextOnFocus
                     style={[styles.fretCell, value ? styles.fretCellFilled : null, config.cellMode === 'text' && styles.noteCell]}
                     placeholder="–"
@@ -928,6 +930,9 @@ function InstrumentTabPanel({ song, instrument }) {
 
       {showSource ? (
         <View style={styles.primaryTabCard}>
+          <TouchableOpacity style={[styles.secondaryButton, { alignSelf: 'flex-start', marginBottom: 14 }]} onPress={() => openExternalLink('https://www.songsterr.com/?pattern=' + encodeURIComponent(song.artist + ' ' + song.title))}>
+            <Text style={styles.secondaryButtonText}>Abrir pesquisa no Songsterr ↗</Text>
+          </TouchableOpacity>
           {searching ? (
             <View style={styles.feedbackBox}>
               <ActivityIndicator />
@@ -1027,15 +1032,7 @@ function InstrumentTabPanel({ song, instrument }) {
                 <Text style={styles.readonlyFieldText}>{song.title + ' — ' + song.artist}</Text>
               </View>
 
-              <View style={styles.publicRow}>
-                <Text style={styles.formLabel}>Pública</Text>
-                <TouchableOpacity
-                  style={[styles.switchTrack, isPublic && styles.switchTrackOn]}
-                  onPress={() => setIsPublic((value) => !value)}
-                >
-                  <View style={[styles.switchThumb, isPublic && styles.switchThumbOn]} />
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.contentSub}>Biblioteca partilhada · acesso público</Text>
             </View>
 
             <View style={styles.editorMain}>
@@ -1314,29 +1311,24 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
 
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+
   function confirmDeleteSong() {
     setDeleteError('');
-    Alert.alert(
-      'Apagar música',
-      'Queres mesmo apagar "' + song.title + '"? A música será removida também das playlists, alinhamentos e tabs guardadas.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Apagar',
-          style: 'destructive',
-          onPress: async () => {
-            setDeleting(true);
-            try {
-              await onDelete?.(song);
-            } catch (error) {
-              setDeleteError(error?.message || 'Não foi possível apagar a música.');
-            } finally {
-              setDeleting(false);
-            }
-          },
-        },
-      ]
-    );
+    setDeleteConfirmVisible(true);
+  }
+
+  async function performDeleteSong() {
+    setDeleting(true);
+    try {
+      await onDelete?.(song);
+      setDeleteConfirmVisible(false);
+    } catch (error) {
+      setDeleteError(error?.message || 'Não foi possível apagar a música.');
+      setDeleteConfirmVisible(false);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function retryLyrics() {
@@ -1356,6 +1348,18 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" />
+      <Modal visible={deleteConfirmVisible} transparent animationType="fade" onRequestClose={() => !deleting && setDeleteConfirmVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={[styles.contentCard, { width: '100%', maxWidth: 440, minHeight: 0 }]}>
+            <Text style={styles.contentTitle}>Apagar música?</Text>
+            <Text style={[styles.emptyText, { marginVertical: 18 }]}>A música "{song.title}" será removida da biblioteca, das playlists e dos alinhamentos, incluindo as tabs guardadas.</Text>
+            <View style={styles.editActions}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => setDeleteConfirmVisible(false)} disabled={deleting}><Text style={styles.secondaryButtonText}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.deleteSongButton} onPress={performDeleteSong} disabled={deleting}>{deleting ? <ActivityIndicator /> : <Text style={styles.deleteSongText}>Apagar música</Text>}</TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <ScrollView contentContainerStyle={styles.detailWrap}>
         <TouchableOpacity onPress={onBack} style={styles.back}>
           <Text style={styles.backText}>‹  Voltar</Text>
@@ -1397,8 +1401,13 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
               {song.album || 'Álbum desconhecido'}{song.year ? ` · ${song.year}` : ''}
             </Text>
 
-            {(song.youtubeUrl || song.customUrl) ? (
+            {(song.youtubeUrl || song.customUrl || song.catalogUrl) ? (
               <View style={styles.externalLinksRow}>
+                {song.catalogUrl ? (
+                  <TouchableOpacity style={styles.externalLinkButton} onPress={() => openExternalLink(song.catalogUrl)}>
+                    <Text style={styles.externalLinkText}>Ver na iTunes Store ↗</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {song.youtubeUrl ? (
                   <TouchableOpacity style={styles.youtubeLinkButton} onPress={() => openExternalLink(song.youtubeUrl)}>
                     <Text style={styles.externalLinkText}>▶ YouTube</Text>
@@ -1686,10 +1695,14 @@ function AddSong({ onClose, onAdd }) {
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
   const [addingId, setAddingId] = useState(null);
+  const searchRequest = useRef(0);
 
-  async function searchSpotify(searchText = query) {
+  async function searchCatalog(searchText = query) {
     const q = searchText.trim();
+    const requestId = ++searchRequest.current;
     if (q.length < 2) {
+      searchRequest.current += 1;
+      setLoading(false);
       setResults([]);
       setSearched(false);
       setError('');
@@ -1701,7 +1714,7 @@ function AddSong({ onClose, onAdd }) {
 
     try {
       const response = await fetch(
-        `${SPOTIFY_SEARCH_URL}?q=${encodeURIComponent(q)}&limit=10&market=PT`,
+        `${MUSIC_SEARCH_URL}?q=${encodeURIComponent(q)}&limit=10&market=PT`,
         {
           method: 'GET',
           headers: {
@@ -1712,15 +1725,17 @@ function AddSong({ onClose, onAdd }) {
       );
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || 'Não foi possível pesquisar no Spotify.');
+      if (requestId !== searchRequest.current) return;
+      if (!response.ok) throw new Error(data?.error || 'Não foi possível pesquisar no catálogo iTunes.');
       setResults(data.tracks || []);
       setSearched(true);
     } catch (err) {
+      if (requestId !== searchRequest.current) return;
       setResults([]);
       setSearched(true);
       setError(err?.message || 'Erro na pesquisa. Tenta novamente.');
     } finally {
-      setLoading(false);
+      if (requestId === searchRequest.current) setLoading(false);
     }
   }
 
@@ -1745,8 +1760,8 @@ function AddSong({ onClose, onAdd }) {
       return undefined;
     }
 
-    const timer = setTimeout(() => searchSpotify(q), 550);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => searchCatalog(q), 850);
+    return () => { clearTimeout(timer); searchRequest.current += 1; };
   }, [query]);
 
   return (
@@ -1758,7 +1773,7 @@ function AddSong({ onClose, onAdd }) {
           <View style={{ width: 55 }} />
         </View>
 
-        <Text style={styles.sectionLead}>Pesquisa no Spotify</Text>
+        <Text style={styles.sectionLead}>Pesquisa de músicas</Text>
         <Text style={styles.sectionDescription}>
           Procura por título, artista ou ambos. Ao adicionar, tento também obter automaticamente a letra.
         </Text>
@@ -1767,27 +1782,27 @@ function AddSong({ onClose, onAdd }) {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            onSubmitEditing={() => searchSpotify()}
+            onSubmitEditing={() => searchCatalog()}
             returnKeyType="search"
             autoCorrect={false}
             placeholder="Ex.: Make It Wit Chu, QOTSA..."
             placeholderTextColor={COLORS.muted}
             style={[styles.searchInput, styles.searchInputGrow]}
           />
-          <TouchableOpacity style={styles.searchButton} onPress={() => searchSpotify()}>
+          <TouchableOpacity style={styles.searchButton} onPress={() => searchCatalog()}>
             <Text style={styles.primaryText}>Pesquisar</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.searchStatusRow}>
           <Text style={styles.resultLabel}>Resultados</Text>
-          <Text style={styles.spotifyLabel}>Spotify</Text>
+          <Text style={styles.spotifyLabel}>iTunes · Apple</Text>
         </View>
 
         {loading ? (
           <View style={styles.feedbackBox}>
             <ActivityIndicator />
-            <Text style={styles.feedbackText}>A pesquisar no catálogo Spotify…</Text>
+            <Text style={styles.feedbackText}>A pesquisar no catálogo iTunes…</Text>
           </View>
         ) : error ? (
           <View style={styles.errorBox}>
@@ -1818,6 +1833,7 @@ function AddSong({ onClose, onAdd }) {
                 <Text style={styles.songMeta} numberOfLines={1}>
                   {item.album || 'Álbum desconhecido'}{item.year ? ` · ${item.year}` : ''}
                 </Text>
+                {item.catalogUrl ? <TouchableOpacity onPress={() => openExternalLink(item.catalogUrl)}><Text style={styles.addText}>Ver na iTunes Store ↗</Text></TouchableOpacity> : null}
               </View>
               <TouchableOpacity
                 style={styles.addCircle}
@@ -1839,7 +1855,40 @@ function AddSong({ onClose, onAdd }) {
 }
 
 
-function SetlistsScreen({ setlists, loading, onBack, onCreate, onOpen }) {
+function ConfirmRowAction({ label = 'Apagar', title, message, onConfirm, disabled = false }) {
+  const [visible, setVisible] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function confirm() {
+    setBusy(true);
+    setError('');
+    try { await onConfirm(); setVisible(false); }
+    catch (err) { setError(err?.message || 'Não foi possível concluir a operação.'); }
+    finally { setBusy(false); }
+  }
+  return (
+    <>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel={title} style={[styles.deleteSongButton, { marginLeft: 10, minHeight: 40, minWidth: 68 }]} disabled={disabled || busy} onPress={() => { setError(''); setVisible(true); }}>
+        <Text style={styles.deleteSongText}>{label}</Text>
+      </TouchableOpacity>
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={() => !busy && setVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={[styles.contentCard, { width: '100%', maxWidth: 440, minHeight: 0 }]}>
+            <Text style={styles.contentTitle}>{title}</Text>
+            <Text style={[styles.emptyText, { marginVertical: 18 }]}>{message}</Text>
+            {error ? <Text style={styles.errorInline}>{error}</Text> : null}
+            <View style={styles.editActions}>
+              <TouchableOpacity style={styles.secondaryButton} disabled={busy} onPress={() => setVisible(false)}><Text style={styles.secondaryButtonText}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.deleteSongButton} disabled={busy} onPress={confirm}>{busy ? <ActivityIndicator /> : <Text style={styles.deleteSongText}>{label}</Text>}</TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+function SetlistsScreen({ setlists, loading, onBack, onCreate, onOpen, onDelete }) {
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -1905,14 +1954,17 @@ function SetlistsScreen({ setlists, loading, onBack, onCreate, onOpen }) {
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.playlistRow} onPress={() => onOpen(item)}>
+              <View style={styles.playlistRow}>
+                <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 }} onPress={() => onOpen(item)}>
                 <View style={styles.setlistIcon}><Text style={styles.setlistIconText}>≡</Text></View>
                 <View style={styles.songInfo}>
                   <Text style={styles.songTitle}>{item.name}</Text>
                   <Text style={styles.songArtist}>{item.song_count ?? 0} músicas</Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
-              </TouchableOpacity>
+                </TouchableOpacity>
+                <ConfirmRowAction title={'Apagar alinhamento "' + item.name + '"?'} message="As músicas continuam na biblioteca. Apenas esta lista e as suas associações serão apagadas." onConfirm={() => onDelete(item)} />
+              </View>
             )}
           />
         )}
@@ -1978,9 +2030,7 @@ function DraggableSetlistRow({
           <Text style={styles.songArtist} numberOfLines={1}>{item.artist}</Text>
         </View>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.removeSetlistSongButton} onPress={() => onRemove(item)} disabled={dragging}>
-        <Text style={styles.removeSetlistSongText}>×</Text>
-      </TouchableOpacity>
+      <ConfirmRowAction label="Retirar" title={'Retirar "' + item.title + '" do alinhamento?'} message="A música continua na biblioteca." onConfirm={() => onRemove(item)} disabled={dragging} />
     </Animated.View>
   );
 }
@@ -2154,7 +2204,7 @@ function SetlistDetail({ setlist, librarySongs, onBack, onOpenSong, onChanged })
   );
 }
 
-function PlaylistsScreen({ playlists, loading, onBack, onCreate, onOpen }) {
+function PlaylistsScreen({ playlists, loading, onBack, onCreate, onOpen, onDelete }) {
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -2212,14 +2262,17 @@ function PlaylistsScreen({ playlists, loading, onBack, onCreate, onOpen }) {
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.playlistRow} onPress={() => onOpen(item)}>
+              <View style={styles.playlistRow}>
+                <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 }} onPress={() => onOpen(item)}>
                 <View style={styles.playlistIcon}><Text style={styles.playlistIconText}>☷</Text></View>
                 <View style={styles.songInfo}>
                   <Text style={styles.songTitle}>{item.name}</Text>
                   <Text style={styles.songArtist}>{item.song_count ?? 0} músicas</Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
-              </TouchableOpacity>
+                </TouchableOpacity>
+                <ConfirmRowAction title={'Apagar playlist "' + item.name + '"?'} message="As músicas continuam na biblioteca. Apenas esta lista e as suas associações serão apagadas." onConfirm={() => onDelete(item)} />
+              </View>
             )}
           />
         )}
@@ -2228,10 +2281,34 @@ function PlaylistsScreen({ playlists, loading, onBack, onCreate, onOpen }) {
   );
 }
 
-function PlaylistDetail({ playlist, onBack, onOpenSong }) {
+function PlaylistDetail({ playlist, librarySongs, onBack, onOpenSong, onChanged }) {
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [adding, setAdding] = useState(false);
+  const [addQuery, setAddQuery] = useState('');
+  const [busySongId, setBusySongId] = useState(null);
+
+  async function addLibrarySong(song) {
+    setBusySongId(song.id);
+    setError('');
+    try {
+      await libraryPost('add_to_playlist', { playlistId: playlist.id, songId: song.id });
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setError(err?.message || 'Não foi possível adicionar a música.');
+    } finally {
+      setBusySongId(null);
+    }
+  }
+
+  async function removeSong(song) {
+    await libraryPost('remove_from_playlist', { playlistId: playlist.id, songId: song.id });
+    setSongs((prev) => prev.filter((item) => item.id !== song.id));
+    onChanged?.();
+  }
 
   async function load() {
     setLoading(true);
@@ -2256,6 +2333,25 @@ function PlaylistDetail({ playlist, onBack, onOpenSong }) {
         </TouchableOpacity>
         <Text style={styles.title}>{playlist.name}</Text>
         <Text style={styles.subtitle}>{songs.length} músicas</Text>
+        <TouchableOpacity style={[styles.primaryButton, { alignSelf: 'flex-start', marginBottom: 14 }]} onPress={() => setAdding((value) => !value)}>
+          <Text style={styles.primaryText}>{adding ? 'Fechar biblioteca' : '＋ Adicionar da biblioteca'}</Text>
+        </TouchableOpacity>
+        {adding ? (
+          <View style={styles.addSongsPanel}>
+            <TextInput value={addQuery} onChangeText={setAddQuery} placeholder="Pesquisar na biblioteca..." placeholderTextColor={COLORS.muted} style={styles.searchInput} />
+            <ScrollView style={styles.addSongsScroll} keyboardShouldPersistTaps="handled">
+              {librarySongs.filter((item) => (item.title + ' ' + item.artist).toLowerCase().includes(addQuery.toLowerCase())).map((item) => {
+                const included = songs.some((song) => song.id === item.id);
+                return (
+                  <TouchableOpacity key={item.id} style={styles.addSongRow} onPress={() => addLibrarySong(item)} disabled={included || Boolean(busySongId)}>
+                    <View style={styles.songInfo}><Text style={styles.songTitle}>{item.title}</Text><Text style={styles.songArtist}>{item.artist}</Text></View>
+                    {busySongId === item.id ? <ActivityIndicator /> : <Text style={included ? styles.doneText : styles.addText}>{included ? '✓ Adicionada' : '＋ Adicionar'}</Text>}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
 
         {error ? <Text style={styles.errorInline}>{error}</Text> : null}
         {loading ? (
@@ -2270,14 +2366,17 @@ function PlaylistDetail({ playlist, onBack, onOpenSong }) {
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.songRow} onPress={() => onOpenSong(item)}>
+              <View style={styles.songRow}>
+                <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 }} onPress={() => onOpenSong(item)}>
                 <View style={styles.coverSmall}><SongCover song={item} /></View>
                 <View style={styles.songInfo}>
                   <Text style={styles.songTitle}>{item.title}</Text>
                   <Text style={styles.songArtist}>{item.artist}</Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
-              </TouchableOpacity>
+                </TouchableOpacity>
+                <ConfirmRowAction label="Retirar" title={'Retirar "' + item.title + '" da playlist?'} message="A música continua na biblioteca." onConfirm={() => removeSong(item)} />
+              </View>
             )}
           />
         )}
@@ -2404,6 +2503,7 @@ export default function App() {
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
   const [selectedSetlist, setSelectedSetlist] = useState(null);
   const [concertContext, setConcertContext] = useState(null);
+  const [songOrigin, setSongOrigin] = useState('songs');
   const [query, setQuery] = useState('');
   const [libraryError, setLibraryError] = useState('');
 
@@ -2454,7 +2554,7 @@ export default function App() {
     [songs, query]
   );
 
-  async function addSongFromSpotify(song) {
+  async function addSongFromCatalog(song) {
     const data = await libraryPost('add_song', { song });
     const stored = normalizeSong(data.song);
     setSongs((prev) => {
@@ -2462,6 +2562,7 @@ export default function App() {
       return [stored, ...without];
     });
     setSelected(stored);
+    setSongOrigin('songs');
     setConcertContext(null);
     setScreen('detail');
   }
@@ -2489,9 +2590,7 @@ export default function App() {
 
   async function addToPlaylist(playlistId, songId) {
     await libraryPost('add_to_playlist', { playlistId, songId });
-    setPlaylists((prev) =>
-      prev.map((p) => p.id === playlistId ? { ...p, song_count: (p.song_count ?? 0) + 1 } : p)
-    );
+    await loadPlaylists();
   }
 
   async function deleteSong(song) {
@@ -2500,7 +2599,6 @@ export default function App() {
     setSongs((prev) => prev.filter((item) => item.id !== song.id));
     setSelected(null);
 
-    const wasConcert = Boolean(concertContext);
     setConcertContext(null);
 
     await Promise.all([
@@ -2508,11 +2606,12 @@ export default function App() {
       loadSetlists(),
     ]);
 
-    setScreen(wasConcert && selectedSetlist ? 'setlistDetail' : 'songs');
+    setScreen(screen === 'detail' ? songOrigin : 'songs');
   }
 
   function openConcertSong(song, orderedSongs, index) {
     setSelected(song);
+    setSongOrigin('setlistDetail');
     setConcertContext({
       setlist: selectedSetlist,
       songs: orderedSongs,
@@ -2569,7 +2668,7 @@ export default function App() {
 
   if (screen === 'add') {
     return withWebsiteChrome(
-      <AddSong onClose={() => setScreen('songs')} onAdd={addSongFromSpotify} />,
+      <AddSong onClose={() => setScreen('songs')} onAdd={addSongFromCatalog} />,
       'songs'
     );
   }
@@ -2578,7 +2677,7 @@ export default function App() {
     return withWebsiteChrome(
       <SongDetail
         song={selected}
-        onBack={() => setScreen(concertContext ? 'setlistDetail' : 'songs')}
+        onBack={() => setScreen(songOrigin)}
         onPlaylist={() => setScreen('playlistPicker')}
         onEdit={() => setScreen('edit')}
         onDelete={deleteSong}
@@ -2626,6 +2725,7 @@ export default function App() {
         loading={loadingSetlists}
         onBack={() => setScreen('songs')}
         onCreate={createSetlist}
+        onDelete={async (item) => { await libraryPost('delete_setlist', { setlistId: item.id }); setSetlists((prev) => prev.filter((row) => row.id !== item.id)); }}
         onOpen={(setlist) => {
           setSelectedSetlist(setlist);
           setConcertContext(null);
@@ -2659,6 +2759,7 @@ export default function App() {
         loading={loadingPlaylists}
         onBack={() => setScreen('songs')}
         onCreate={createPlaylist}
+        onDelete={async (item) => { await libraryPost('delete_playlist', { playlistId: item.id }); setPlaylists((prev) => prev.filter((row) => row.id !== item.id)); }}
         onOpen={(playlist) => { setSelectedPlaylist(playlist); setScreen('playlistDetail'); }}
       />,
       'playlists'
@@ -2669,8 +2770,10 @@ export default function App() {
     return withWebsiteChrome(
       <PlaylistDetail
         playlist={selectedPlaylist}
+        librarySongs={songs}
+        onChanged={loadPlaylists}
         onBack={() => setScreen('playlists')}
-        onOpenSong={(song) => { setConcertContext(null); setSelected(song); setScreen('detail'); }}
+        onOpenSong={(song) => { setConcertContext(null); setSongOrigin('playlistDetail'); setSelected(song); setScreen('detail'); }}
       />,
       'playlists'
     );
@@ -2682,7 +2785,7 @@ export default function App() {
       <View style={[styles.appShell, !isWeb && tablet && styles.appShellTablet, isWeb && styles.websiteAppShell]}>
         {!isWeb && tablet && (
           <View style={styles.sidebar}>
-            <Text style={styles.logo}>◉  Bonus Track</Text>
+            <Text style={styles.logo}>◉  Altzeimmer</Text>
             <Text style={styles.navCaption}>PRINCIPAL</Text>
 
             <TouchableOpacity style={styles.sideItem}>
@@ -2738,7 +2841,7 @@ export default function App() {
           ) : filtered.length === 0 ? (
             <View style={styles.feedbackBox}>
               <Text style={styles.emptyTitle}>{songs.length ? 'Nenhuma música corresponde à pesquisa.' : 'A tua biblioteca está vazia.'}</Text>
-              <Text style={styles.feedbackText}>{songs.length ? 'Experimenta outro título ou artista.' : 'Usa “Adicionar” para procurar no Spotify.'}</Text>
+              <Text style={styles.feedbackText}>{songs.length ? 'Experimenta outro título ou artista.' : 'Usa “Adicionar” para procurar no catálogo iTunes.'}</Text>
             </View>
           ) : (
             <FlatList
@@ -2746,7 +2849,8 @@ export default function App() {
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.list}
               renderItem={({ item }) => (
-                <TouchableOpacity style={styles.songRow} onPress={() => { setConcertContext(null); setSelected(item); setScreen('detail'); }}>
+                <View style={styles.songRow}>
+                  <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 }} onPress={() => { setConcertContext(null); setSongOrigin('songs'); setSelected(item); setScreen('detail'); }}>
                   <View style={styles.coverSmall}><SongCover song={item} /></View>
                   <View style={styles.songInfo}>
                     <Text style={styles.songTitle}>{item.title}</Text>
@@ -2756,7 +2860,9 @@ export default function App() {
                     </Text>
                   </View>
                   <Text style={styles.chevron}>›</Text>
-                </TouchableOpacity>
+                  </TouchableOpacity>
+                  <ConfirmRowAction title={'Apagar música "' + item.title + '"?'} message="A música e as respetivas tabs serão apagadas da biblioteca e retiradas das playlists e alinhamentos." onConfirm={() => deleteSong(item)} />
+                </View>
               )}
             />
           )}

@@ -1,0 +1,24 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: bonus-track:vps
+    restart: unless-stopped
+    networks:
+      - coolify
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - traefik.http.routers.bonus-track-http.rule=Host(`bonus-track.185.174.252.117.sslip.io`)
+      - traefik.http.routers.bonus-track-http.entrypoints=http
+      - traefik.http.routers.bonus-track-http.middlewares=bonus-track-redirect
+      - traefik.http.middlewares.bonus-track-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.bonus-track.rule=Host(`bonus-track.185.174.252.117.sslip.io`)
+      - traefik.http.routers.bonus-track.entrypoints=https
+      - traefik.http.routers.bonus-track.tls=true
+      - traefik.http.routers.bonus-track.tls.certresolver=letsencrypt
+      - traefik.http.services.bonus-track.loadbalancer.server.port=80
+networks:
+  coolify:
+    external: true

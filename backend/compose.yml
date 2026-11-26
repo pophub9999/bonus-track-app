@@ -1,0 +1,31 @@
+services:
+  api:
+    build: .
+    image: altzeimmer-backend:local
+    container_name: altzeimmer-api
+    restart: unless-stopped
+    env_file: .env
+    dns: [1.1.1.1, 9.9.9.9]
+    networks: [data, coolify]
+    healthcheck:
+      test: ["CMD","node","-e","fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  rest:
+    image: postgrest/postgrest:v14.12
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: ${DATABASE_URL}
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_SCHEMAS: altzeimmer
+      PGRST_DB_EXTRA_SEARCH_PATH: altzeimmer,extensions
+    networks: [data, supabase]
+networks:
+  data:
+    internal: true
+  coolify:
+    external: true
+  supabase:
+    external: true
+    name: 40wra5594y70lv92qgstkyyz
