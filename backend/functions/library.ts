@@ -150,7 +150,7 @@ async function fetchLyrics(song: any) {
 }
 
 async function enrichLyrics(supabase: any, song: any) {
-  if (song.lyrics || song.instrumental) return song;
+  if (song.lyrics || song.instrumental || song.lyrics_source === 'Manual') return song;
 
   const lyrics = await fetchLyrics(song);
   if (!lyrics || lyrics.rateLimited) return song;
@@ -381,6 +381,34 @@ export default async function handler(req: Request) {
         const fields = body?.fields ?? {};
         if (!songId) return json({ error: "songId is required" }, 400);
 
+        const linkPatch: Record<string, unknown> = {};
+        for (const [field, column, legacy, platform] of [
+          ['youtubeUrls', 'youtube_urls', 'youtube_url', 'youtube'],
+          ['spotifyUrls', 'spotify_urls', 'spotify_url', 'spotify'],
+        ]) {
+          if (!(field in fields)) continue;
+          const values = fields[field];
+          if (!Array.isArray(values) || values.length > 3 || values.some((v: unknown) => typeof v !== 'string')) {
+            return json({ error: 'Indica no máximo 3 links por plataforma.' }, 400);
+          }
+          const links = values.map((v: string) => v.trim()).filter(Boolean);
+          for (const link of links) {
+            let url: URL;
+            try { url = new URL(link); } catch { return json({ error: 'Link inválido.' }, 400); }
+            const host = url.hostname.toLowerCase();
+            const validHost = platform === 'youtube'
+              ? host === 'youtu.be' || host === 'youtube.com' || host.endsWith('.youtube.com')
+              : host === 'spotify.com' || host.endsWith('.spotify.com') || host === 'spotify.link';
+            if (!['https:', 'http:'].includes(url.protocol) || !validHost || url.username || url.password) {
+              return json({ error: 'Usa um link válido da plataforma indicada.' }, 400);
+            }
+          }
+          linkPatch[column] = [...new Set(links)];
+          linkPatch[legacy] = links[0] || null;
+        }
+        if ('lyrics' in fields && (typeof fields.lyrics !== 'string' || fields.lyrics.length > 200000)) {
+          return json({ error: 'Letra inválida ou demasiado longa.' }, 400);
+        }
         const allowed = {
           title: typeof fields.title === "string" ? fields.title.trim() : undefined,
           artist: typeof fields.artist === "string" ? fields.artist.trim() : undefined,
@@ -394,6 +422,11 @@ export default async function handler(req: Request) {
           custom_url: typeof fields.customUrl === "string"
             ? (fields.customUrl.trim() || null)
             : undefined,
+          ...linkPatch,
+          ...('lyrics' in fields ? {
+            lyrics: fields.lyrics, synced_lyrics: null, lyrics_source: 'Manual',
+            lyrics_source_id: null, instrumental: false,
+          } : {}),
           updated_at: new Date().toISOString(),
         };
 

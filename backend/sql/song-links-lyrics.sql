@@ -1,0 +1,11 @@
+BEGIN;
+ALTER TABLE altzeimmer.songs ADD COLUMN IF NOT EXISTS youtube_urls text[];
+ALTER TABLE altzeimmer.songs ADD COLUMN IF NOT EXISTS spotify_urls text[];
+UPDATE altzeimmer.songs SET youtube_urls = CASE WHEN nullif(trim(youtube_url), '') IS NULL THEN ARRAY[]::text[] ELSE ARRAY[youtube_url] END WHERE youtube_urls IS NULL;
+UPDATE altzeimmer.songs SET spotify_urls = CASE WHEN nullif(trim(spotify_url), '') IS NULL THEN ARRAY[]::text[] ELSE ARRAY[spotify_url] END WHERE spotify_urls IS NULL;
+ALTER TABLE altzeimmer.songs ALTER COLUMN youtube_urls SET DEFAULT ARRAY[]::text[], ALTER COLUMN youtube_urls SET NOT NULL;
+ALTER TABLE altzeimmer.songs ALTER COLUMN spotify_urls SET DEFAULT ARRAY[]::text[], ALTER COLUMN spotify_urls SET NOT NULL;
+ALTER TABLE altzeimmer.songs ADD CONSTRAINT songs_youtube_urls_max CHECK (cardinality(youtube_urls) <= 3);
+ALTER TABLE altzeimmer.songs ADD CONSTRAINT songs_spotify_urls_max CHECK (cardinality(spotify_urls) <= 3);
+NOTIFY pgrst, 'reload schema';
+COMMIT;
