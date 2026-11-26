@@ -12,7 +12,15 @@ base='https://raw.githubusercontent.com/pophub9999/bonus-track-app/'+ref+'/'
 def run(args, **kwargs):
     return subprocess.run(args,check=True,**kwargs)
 def read_url(url):
-    with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Altzeimmer-deploy'}),timeout=30) as r: return r.read()
+    # curl/IPv4 evita resets intermitentes do handshake observado com urllib.
+    # Mantém a verificação TLS e repete apenas downloads, sem repetir escritas.
+    result=subprocess.run(['curl','--fail','--silent','--show-error','--location','--ipv4',
+        '--retry','5','--retry-delay','2','--retry-all-errors',
+        '--connect-timeout','15','--max-time','60','--user-agent','Altzeimmer-deploy',url],
+        capture_output=True)
+    if result.returncode:
+        raise RuntimeError('Download interrompido após várias tentativas: '+url+'\\n'+result.stderr.decode(errors='replace'))
+    return result.stdout
 runs=json.loads(read_url('https://api.github.com/repos/pophub9999/bonus-track-app/actions/runs?head_sha='+ref))['workflow_runs']
 checks=[r for r in runs if r['name']=='Verify iTunes catalogue']
 # A revisão de código e os testes do commit de implementação devem estar concluídos.
@@ -30,6 +38,17 @@ with (backup/'database.dump').open('wb') as f:
     run(['docker','exec',db,'pg_dump','-U','postgres','-d','postgres','-n','altzeimmer','-Fc'],stdout=f)
 os.chmod(backup/'database.dump',0o600)
 paths=['server.mjs','functions/library.ts','functions/music-search.ts','sql/itunes-catalog.sql','tests/music-search.test.mjs','ITUNES.md']
+staging=backup/'staged'
+staging.mkdir(mode=0o700)
+print('A descarregar e verificar todos os ficheiros antes de alterar o backend...',flush=True)
+for name in paths:
+    staged=staging/name
+    staged.parent.mkdir(parents=True,exist_ok=True)
+    content=read_url(base+'backend/'+name)
+    if not content.strip(): raise RuntimeError('Download vazio: '+name)
+    staged.write_bytes(content)
+    os.chmod(staged,0o600)
+# Só substituir depois de todos os downloads terem terminado.
 for name in paths:
     target=root/name
     if target.exists():
@@ -37,8 +56,7 @@ for name in paths:
         saved.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(target,saved)
     target.parent.mkdir(parents=True,exist_ok=True)
-    target.write_bytes(read_url(base+'backend/'+name))
-    os.chmod(target,0o600)
+    os.replace(staging/name,target)
 # As credenciais e a implementação Spotify existente não são alteradas.
 run(['docker','exec','-i',db,'psql','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1'],input=(root/'sql/itunes-catalog.sql').read_bytes())
 run(['docker','tag','altzeimmer-backend:local','altzeimmer-backend:pre-itunes-'+stamp])
@@ -48,7 +66,14 @@ def api(url,body=None,token=None):
     headers={'Content-Type':'application/json','Accept':'application/json','apikey':'altzeimmer-public'}
     if token: headers['Authorization']='Bearer '+token
     request=urllib.request.Request(url,data=json.dumps(body).encode() if body is not None else None,headers=headers)
-    with urllib.request.urlopen(request,timeout=60) as r: return json.load(r)
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(request,timeout=60) as r: return json.load(r)
+        except urllib.error.HTTPError as error:
+            if body is not None or error.code not in (429,500,502,503,504) or attempt==3: raise
+        except (urllib.error.URLError,ConnectionError,TimeoutError):
+            if body is not None or attempt==3: raise
+        time.sleep(2*(attempt+1))
 site='https://altzeimmer.nextit.freeddns.org'
 def post(action,**payload): return api(site+'/functions/v1/library',{'action':action,**payload})
 # Publica o frontend pelo Coolify. A credencial temporária nunca é impressa.
