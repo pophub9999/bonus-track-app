@@ -2,7 +2,7 @@ name: Verify iTunes catalogue
 on:
   push:
     branches: [codex/vps-public-library]
-    paths: ['App.js', 'backend/**', '.github/workflows/verify-itunes.yml']
+    paths: ['App.js', 'backend/**', 'deploy/enable-itunes.py', '.github/workflows/verify-itunes.yml']
   workflow_dispatch:
 jobs:
   verify:
@@ -13,6 +13,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: python3 -m py_compile deploy/enable-itunes.py
       - run: npm install
       - run: npm run export:web
       - working-directory: backend
