@@ -36,7 +36,9 @@ const COLORS = {
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_PUBLISHABLE_KEY = 'altzeimmer-public';
-const SPOTIFY_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spotify-search`;
+// Spotify desativado: a implementação original permanece em backend/functions/spotify-search.ts.
+// const SPOTIFY_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spotify-search`;
+const MUSIC_SEARCH_URL = `${SUPABASE_URL}/functions/v1/music-search`;
 const LIBRARY_URL = `${SUPABASE_URL}/functions/v1/library`;
 const TAB_SEARCH_URL = `${SUPABASE_URL}/functions/v1/tab-search`;
 
@@ -50,6 +52,7 @@ function normalizeSong(song) {
     thumbnail: song.thumbnail_url ?? song.thumbnail ?? null,
     durationMs: song.duration_ms ?? song.durationMs ?? null,
     spotifyUrl: song.spotify_url ?? song.spotifyUrl ?? null,
+    catalogUrl: song.catalog_url ?? song.catalogUrl ?? null,
     youtubeUrl: song.youtube_url ?? song.youtubeUrl ?? null,
     customUrl: song.custom_url ?? song.customUrl ?? null,
     syncedLyrics: song.synced_lyrics ?? song.syncedLyrics ?? null,
@@ -1398,8 +1401,13 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
               {song.album || 'Álbum desconhecido'}{song.year ? ` · ${song.year}` : ''}
             </Text>
 
-            {(song.youtubeUrl || song.customUrl) ? (
+            {(song.youtubeUrl || song.customUrl || song.catalogUrl) ? (
               <View style={styles.externalLinksRow}>
+                {song.catalogUrl ? (
+                  <TouchableOpacity style={styles.externalLinkButton} onPress={() => openExternalLink(song.catalogUrl)}>
+                    <Text style={styles.externalLinkText}>Ver na iTunes Store ↗</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {song.youtubeUrl ? (
                   <TouchableOpacity style={styles.youtubeLinkButton} onPress={() => openExternalLink(song.youtubeUrl)}>
                     <Text style={styles.externalLinkText}>▶ YouTube</Text>
@@ -1687,10 +1695,14 @@ function AddSong({ onClose, onAdd }) {
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
   const [addingId, setAddingId] = useState(null);
+  const searchRequest = useRef(0);
 
-  async function searchSpotify(searchText = query) {
+  async function searchCatalog(searchText = query) {
     const q = searchText.trim();
+    const requestId = ++searchRequest.current;
     if (q.length < 2) {
+      searchRequest.current += 1;
+      setLoading(false);
       setResults([]);
       setSearched(false);
       setError('');
@@ -1702,7 +1714,7 @@ function AddSong({ onClose, onAdd }) {
 
     try {
       const response = await fetch(
-        `${SPOTIFY_SEARCH_URL}?q=${encodeURIComponent(q)}&limit=10&market=PT`,
+        `${MUSIC_SEARCH_URL}?q=${encodeURIComponent(q)}&limit=10&market=PT`,
         {
           method: 'GET',
           headers: {
@@ -1713,15 +1725,17 @@ function AddSong({ onClose, onAdd }) {
       );
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || 'Não foi possível pesquisar no Spotify.');
+      if (requestId !== searchRequest.current) return;
+      if (!response.ok) throw new Error(data?.error || 'Não foi possível pesquisar no catálogo iTunes.');
       setResults(data.tracks || []);
       setSearched(true);
     } catch (err) {
+      if (requestId !== searchRequest.current) return;
       setResults([]);
       setSearched(true);
       setError(err?.message || 'Erro na pesquisa. Tenta novamente.');
     } finally {
-      setLoading(false);
+      if (requestId === searchRequest.current) setLoading(false);
     }
   }
 
@@ -1746,8 +1760,8 @@ function AddSong({ onClose, onAdd }) {
       return undefined;
     }
 
-    const timer = setTimeout(() => searchSpotify(q), 550);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => searchCatalog(q), 850);
+    return () => { clearTimeout(timer); searchRequest.current += 1; };
   }, [query]);
 
   return (
@@ -1759,7 +1773,7 @@ function AddSong({ onClose, onAdd }) {
           <View style={{ width: 55 }} />
         </View>
 
-        <Text style={styles.sectionLead}>Pesquisa no Spotify</Text>
+        <Text style={styles.sectionLead}>Pesquisa de músicas</Text>
         <Text style={styles.sectionDescription}>
           Procura por título, artista ou ambos. Ao adicionar, tento também obter automaticamente a letra.
         </Text>
@@ -1768,27 +1782,27 @@ function AddSong({ onClose, onAdd }) {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            onSubmitEditing={() => searchSpotify()}
+            onSubmitEditing={() => searchCatalog()}
             returnKeyType="search"
             autoCorrect={false}
             placeholder="Ex.: Make It Wit Chu, QOTSA..."
             placeholderTextColor={COLORS.muted}
             style={[styles.searchInput, styles.searchInputGrow]}
           />
-          <TouchableOpacity style={styles.searchButton} onPress={() => searchSpotify()}>
+          <TouchableOpacity style={styles.searchButton} onPress={() => searchCatalog()}>
             <Text style={styles.primaryText}>Pesquisar</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.searchStatusRow}>
           <Text style={styles.resultLabel}>Resultados</Text>
-          <Text style={styles.spotifyLabel}>Spotify</Text>
+          <Text style={styles.spotifyLabel}>iTunes · Apple</Text>
         </View>
 
         {loading ? (
           <View style={styles.feedbackBox}>
             <ActivityIndicator />
-            <Text style={styles.feedbackText}>A pesquisar no catálogo Spotify…</Text>
+            <Text style={styles.feedbackText}>A pesquisar no catálogo iTunes…</Text>
           </View>
         ) : error ? (
           <View style={styles.errorBox}>
@@ -1819,6 +1833,7 @@ function AddSong({ onClose, onAdd }) {
                 <Text style={styles.songMeta} numberOfLines={1}>
                   {item.album || 'Álbum desconhecido'}{item.year ? ` · ${item.year}` : ''}
                 </Text>
+                {item.catalogUrl ? <TouchableOpacity onPress={() => openExternalLink(item.catalogUrl)}><Text style={styles.addText}>Ver na iTunes Store ↗</Text></TouchableOpacity> : null}
               </View>
               <TouchableOpacity
                 style={styles.addCircle}
@@ -2539,7 +2554,7 @@ export default function App() {
     [songs, query]
   );
 
-  async function addSongFromSpotify(song) {
+  async function addSongFromCatalog(song) {
     const data = await libraryPost('add_song', { song });
     const stored = normalizeSong(data.song);
     setSongs((prev) => {
@@ -2653,7 +2668,7 @@ export default function App() {
 
   if (screen === 'add') {
     return withWebsiteChrome(
-      <AddSong onClose={() => setScreen('songs')} onAdd={addSongFromSpotify} />,
+      <AddSong onClose={() => setScreen('songs')} onAdd={addSongFromCatalog} />,
       'songs'
     );
   }
@@ -2826,7 +2841,7 @@ export default function App() {
           ) : filtered.length === 0 ? (
             <View style={styles.feedbackBox}>
               <Text style={styles.emptyTitle}>{songs.length ? 'Nenhuma música corresponde à pesquisa.' : 'A tua biblioteca está vazia.'}</Text>
-              <Text style={styles.feedbackText}>{songs.length ? 'Experimenta outro título ou artista.' : 'Usa “Adicionar” para procurar no Spotify.'}</Text>
+              <Text style={styles.feedbackText}>{songs.length ? 'Experimenta outro título ou artista.' : 'Usa “Adicionar” para procurar no catálogo iTunes.'}</Text>
             </View>
           ) : (
             <FlatList

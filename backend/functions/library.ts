@@ -318,7 +318,8 @@ export default async function handler(req: Request) {
         if (!input?.title || !input?.artist) return json({ error: "Invalid song" }, 400);
 
         const payload = {
-          spotify_id: input.id ?? input.spotify_id ?? null,
+          spotify_id: input.source === 'itunes' ? null : (input.id ?? input.spotify_id ?? null),
+          ...(input.source === 'itunes' ? { catalog_source: 'itunes', catalog_id: String(input.catalogId || input.id).replace(/^itunes:/, ''), catalog_url: input.catalogUrl || null } : {}),
           title: input.title,
           artist: input.artist,
           album: input.album ?? null,
@@ -332,7 +333,28 @@ export default async function handler(req: Request) {
         };
 
         let song;
-        if (payload.spotify_id) {
+        if (input.source === 'itunes') {
+          if (!input.catalogId && !input.id) return json({ error: "Catalog ID is required" }, 400);
+          const catalogId = String(input.catalogId || input.id).replace(/^itunes:/, '');
+          const { data: exact, error: lookupError } = await supabase.from('songs').select('*').eq('catalog_source','itunes').eq('catalog_id',catalogId).maybeSingle();
+          if (lookupError) throw lookupError;
+          let existing = exact;
+          if (!existing && payload.duration_ms && payload.album) {
+            const { data: candidates, error } = await supabase.from('songs').select('*').eq('title',payload.title).eq('artist',payload.artist).limit(20);
+            if (error) throw error;
+            existing = (candidates || []).find((s: any) => norm(s.album) === norm(payload.album) && s.duration_ms && Math.abs(s.duration_ms - payload.duration_ms) <= 2000);
+          }
+          if (existing) {
+            const { spotify_id, spotify_url, ...catalogPatch } = payload;
+            const { data, error } = await supabase.from('songs').update(catalogPatch).eq('id',existing.id).select('*').single();
+            if (error) throw error;
+            song = data;
+          } else {
+            const { data, error } = await supabase.from('songs').upsert(payload,{onConflict:'catalog_source,catalog_id'}).select('*').single();
+            if (error) throw error;
+            song = data;
+          }
+        } else if (payload.spotify_id) {
           const { data, error } = await supabase
             .from("songs")
             .upsert(payload, { onConflict: "spotify_id" })

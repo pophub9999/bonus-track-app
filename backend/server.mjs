@@ -10,7 +10,10 @@ globalThis.fetch = async (...args) => {
   }
 };
 globalThis.Deno = { env: { get: (name) => process.env[name] } };
-const handlers = Object.fromEntries(await Promise.all(['library','spotify-search','tab-search'].map(async name => [name,(await import('./dist/'+name+'.js')).default])));
+const handlers = Object.fromEntries(await Promise.all(['library','music-search','tab-search'].map(async name => [name,(await import('./dist/'+name+'.js')).default])));
+// Spotify desativado; para reativar, importar './dist/spotify-search.js' neste ponto.
+// Compatibilidade com páginas antigas em cache: encaminha para iTunes, nunca para Spotify.
+handlers['spotify-search'] = handlers['music-search'];
 const server = http.createServer(async (req,res) => {
   try {
     const url = new URL(req.url,'http://altzeimmer-api:8080');
