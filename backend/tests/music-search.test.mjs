@@ -8,10 +8,10 @@ test('iTunes maps metadata, keeps source IDs separate, and shares cached request
  let calls=0;
  globalThis.fetch=async(url)=>{calls++;assert.equal(new URL(url).hostname,'itunes.apple.com');return Response.json({results:[{kind:'song',trackId:123,trackName:'Hysteria',artistName:'Muse',collectionName:'Absolution',releaseDate:'2003-01-01',trackTimeMillis:227000,trackViewUrl:'https://music.apple.com/pt/album/test/123',artworkUrl100:'https://example.test/cover.jpg'},{kind:'music-video',trackId:456}]});};
  try {
-  const responses=await Promise.all([handler(request('Muse Hysteria')),handler(request('Muse Hysteria'))]);
+  const responses=await Promise.all([handler(request('cache fixture Muse Hysteria')),handler(request('cache fixture Muse Hysteria'))]);
   const data=await responses[0].json();
   assert.equal(data.tracks.length,1);assert.equal(data.tracks[0].id,'itunes:123');assert.equal(data.tracks[0].source,'itunes');assert.equal(data.tracks[0].spotifyUrl,null);assert.equal(data.tracks[0].year,'2003');
-  await handler(request('Muse Hysteria'));assert.equal(calls,1);
+  await handler(request('cache fixture Muse Hysteria'));assert.equal(calls,1);
  } finally {globalThis.fetch=realFetch;}
 });
 test('unauthorized and short queries never reach the catalogue',async()=>{
