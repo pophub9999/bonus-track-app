@@ -42,6 +42,10 @@ const MUSIC_SEARCH_URL = `${SUPABASE_URL}/functions/v1/music-search`;
 const LIBRARY_URL = `${SUPABASE_URL}/functions/v1/library`;
 const TAB_SEARCH_URL = `${SUPABASE_URL}/functions/v1/tab-search`;
 
+function parseCustomLinks(value) {
+  return (value || '').split(/\r?\n/).map((link) => link.trim()).filter(Boolean);
+}
+
 function normalizeSong(song) {
   if (!song) return null;
   return {
@@ -1420,11 +1424,11 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
                     <Text style={styles.externalLinkText}>Spotify {index + 1} ↗</Text>
                   </TouchableOpacity>
                 ))}
-                {song.customUrl ? (
-                  <TouchableOpacity style={styles.externalLinkButton} onPress={() => openExternalLink(song.customUrl)}>
-                    <Text style={styles.externalLinkText}>↗ Link</Text>
+                {parseCustomLinks(song.customUrl).map((url, index) => (
+                  <TouchableOpacity key={'custom-' + index} style={styles.externalLinkButton} onPress={() => openExternalLink(url)}>
+                    <Text style={styles.externalLinkText}>↗ Link {index + 1}</Text>
                   </TouchableOpacity>
-                ) : null}
+                ))}
               </View>
             ) : null}
 
@@ -1511,7 +1515,11 @@ function SongDetail({ song, onBack, onPlaylist, onEdit, onDelete, onSongUpdate, 
                     : 'Conteúdo da música'}
               </Text>
             </View>
-            {tab === 'Notas' ? (
+            {tab === 'Letra' ? (
+              <TouchableOpacity style={styles.secondaryButton} onPress={onEdit}>
+                <Text style={styles.secondaryButtonText}>Editar letra</Text>
+              </TouchableOpacity>
+            ) : tab === 'Notas' ? (
               <TouchableOpacity style={styles.primarySmall}>
                 <Text style={styles.primaryText}>+ Adicionar</Text>
               </TouchableOpacity>
@@ -1614,7 +1622,7 @@ function EditSong({ song, onBack, onSave }) {
         youtubeUrls: youtubeUrls.map((url) => url.trim()).filter(Boolean),
         spotifyUrls: spotifyUrls.map((url) => url.trim()).filter(Boolean),
         ...(lyrics !== (song.lyrics || '') ? { lyrics } : {}),
-        customUrl: customUrl.trim(),
+        customUrl: parseCustomLinks(customUrl).join('\n'),
       });
     } catch (err) {
       setError(err?.message || 'Não foi possível guardar as alterações.');
@@ -1679,15 +1687,17 @@ function EditSong({ song, onBack, onSave }) {
           style={[styles.formInput, { minHeight: 280, textAlignVertical: 'top' }]}
           placeholder="Escreve ou cola a letra…" placeholderTextColor={COLORS.muted} />
 
-        <Text style={styles.formLabel}>Outro link</Text>
+        <Text style={styles.formLabel}>Outros links · um por linha</Text>
         <TextInput
+          accessibilityLabel="Outros links, um por linha"
           value={customUrl}
           onChangeText={setCustomUrl}
-          keyboardType="url"
+          multiline
+          editable={!saving}
           autoCapitalize="none"
           autoCorrect={false}
           style={styles.formInput}
-          placeholder="https://..."
+          placeholder="Um link por linha"
           placeholderTextColor={COLORS.muted}
         />
 
